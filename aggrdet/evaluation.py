@@ -10,7 +10,7 @@ from algorithm import SelectNumberFormat
 class QualityEvaluation(luigi.Task):
 
     dataset_path = luigi.Parameter()
-    error_bound = luigi.FloatParameter(default=20)
+    error_bound = luigi.FloatParameter(default=10)
     satisfied_vote_ratio = luigi.FloatParameter(default=0.5)
 
     def output(self):

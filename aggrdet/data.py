@@ -1,6 +1,5 @@
 # Created by lan at 2021/1/2
 import re
-from enum import Enum
 from typing import List
 
 import numpy as np

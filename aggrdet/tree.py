@@ -30,12 +30,14 @@ class AggregationRelationForest:
             tree = Tree()
             tree.create_node(tag=ar.aggregator.cell_index.__str__(), identifier=ar.aggregator.cell_index.__str__(), data=ar.aggregator.value)
             for aee in ar.aggregatees:
-                tree.create_node(tag=aee.cell_index.__str__(), identifier=aee.cell_index.__str__(), data=aee.value, parent=ar.aggregator.cell_index.__str__())
+                tree.create_node(tag=aee.cell_index.__str__(), identifier=aee.cell_index.__str__(), data=aee.value,
+                                 parent=ar.aggregator.cell_index.__str__())
             self.forest[ar.aggregator.cell_index].append(tree)
             self.pool.append(copy(tree))
         else:
             for aee in ar.aggregatees:
-                last_tree.create_node(tag=aee.cell_index.__str__(), identifier=aee.cell_index.__str__(), data=aee.value, parent=ar.aggregator.cell_index.__str__())
+                last_tree.create_node(tag=aee.cell_index.__str__(), identifier=aee.cell_index.__str__(), data=aee.value,
+                                      parent=ar.aggregator.cell_index.__str__())
             self.pool.append(copy(last_tree))
 
         # for aee in ar.aggregatees:
@@ -46,6 +48,10 @@ class AggregationRelationForest:
         for ar in ar_cands:
             for aee in ar.aggregatees:
                 self.forest.pop(aee.cell_index, None)
+
+    def remove_consumed_aggregator(self, ar_cand: AggregationRelation) -> None:
+        for aee in ar_cand.aggregatees:
+            self.forest.pop(aee.cell_index, None)
 
     def is_valid_relation(self, ar: AggregationRelation) -> bool:
         """

@@ -1,6 +1,6 @@
 # Created by lan at 2021/1/2
 
-empty_cell_values = ['', '-', 'n/a', 'null', '.', '..', '...', 'x', 'X']
+empty_cell_values = ['', '-', 'n/a', 'null', '.', '..', '...', 'x', 'X', '#']
 
 
 def is_empty_cell(value: str) -> bool:

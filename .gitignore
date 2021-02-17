@@ -4,3 +4,9 @@
 # mac DS_Store.
 .DS_Store
 **/.DS_Store
+
+# temparory folders
+**/temp
+
+# __pycache__
+**/__pycache__
