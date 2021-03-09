@@ -1,9 +1,7 @@
 # Created by lan at 2021/2/11
 import gzip
 import json
-import os
 import re
-import shutil
 from decimal import Decimal
 
 import luigi
@@ -11,7 +9,7 @@ import numpy as np
 from luigi.mock import MockTarget
 from tqdm import tqdm
 
-from data import normalize_number_value
+from data import transform_number_format
 
 
 class LoadDataset(luigi.Task):
@@ -58,17 +56,12 @@ class DataPreparation(luigi.Task):
             json_file_dicts = np.array([json.loads(line) for line in file_reader])
 
         for file_dict in tqdm(json_file_dicts, desc='Data preparation'):
-            # print(file_dict['file_name'])
-            # if file_dict['file_name'] != 'C10003':
-            #     continue
-            file_values = np.copy(file_dict['table_array'])
-            for index, value in np.ndenumerate(file_values):
-                normalized_value = normalize_number_value(value, file_dict['number_format'])
-                file_values[index] = normalized_value
+            file_values = np.array(transform_number_format(np.copy(file_dict['table_array']), file_dict['number_format']))
+            # for index, value in np.ndenumerate(file_values):
+            #     normalized_value = normalize_number_value(value, file_dict['number_format'])
+            #     file_values[index] = normalized_value
             for aggr_annotation in file_dict['aggregation_annotations']:
                 aggor_index = tuple(aggr_annotation['aggregator_index'])
-                # if aggor_index != (6,5):
-                #     continue
                 aggor_value = re.sub('[^0-9,.\-+\s]', '', file_values[aggor_index])
                 if bool(aggor_value):
                     try:

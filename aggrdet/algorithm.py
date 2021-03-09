@@ -311,19 +311,14 @@ class NumberFormatNormalization(luigi.Task):
         with self.input().open('r') as input_file:
             dump_json_string = []
             files_dict = [json.loads(line) for line in input_file]
-            # for line in input_file:
             for file_json_dict in tqdm(files_dict, desc='Number format selection.'):
                 start_time = time.time()
-                # file_json_dict = json.loads(line)
                 file_value_array = np.array(file_json_dict['table_array'])
-                # if file_json_dict['file_name'] != 'C10015':
-                #     continue
                 number_format = detect_number_format(file_value_array)
-                # print(number_format)
-                tnff = {}
+                transformed_values_by_number_format = {}
                 for nf in number_format:
-                    tnff[nf] = transform_number_format(file_json_dict['table_array'], nf)
-                file_json_dict['valid_number_formats'] = tnff
+                    transformed_values_by_number_format[nf] = transform_number_format(file_json_dict['table_array'], nf)
+                file_json_dict['valid_number_formats'] = transformed_values_by_number_format
 
                 end_time = time.time()
                 exec_time = end_time - start_time
