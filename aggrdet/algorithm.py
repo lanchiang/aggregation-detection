@@ -18,7 +18,7 @@ import numpy as np
 from luigi.mock import MockTarget
 from tqdm import tqdm
 
-from data import detect_number_format, transform_number_format
+from data import detect_number_format, normalize_file
 from dataprep import DataPreparation
 from elements import AggregationRelation, CellIndex, Direction, Cell
 from helpers import is_empty_cell, hard_empty_cell_values
@@ -297,15 +297,13 @@ class NumberFormatNormalization(luigi.Task):
     """
 
     dataset_path = luigi.Parameter()
-    result_path = luigi.Parameter()
     sample_ratio = luigi.FloatParameter(default=0.1)
 
     def output(self):
         return MockTarget(fn='number-format-normalization')
-        # return luigi.LocalTarget(os.path.join(self.result_path, 'file-number-format.jl'))
 
     def requires(self):
-        return DataPreparation(self.dataset_path, self.result_path)
+        return DataPreparation(self.dataset_path)
 
     def run(self):
         with self.input().open('r') as input_file:
@@ -317,7 +315,7 @@ class NumberFormatNormalization(luigi.Task):
                 number_format = detect_number_format(file_value_array)
                 transformed_values_by_number_format = {}
                 for nf in number_format:
-                    transformed_values_by_number_format[nf] = transform_number_format(file_json_dict['table_array'], nf)
+                    transformed_values_by_number_format[nf] = normalize_file(file_json_dict['table_array'], nf)
                 file_json_dict['valid_number_formats'] = transformed_values_by_number_format
 
                 end_time = time.time()

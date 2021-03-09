@@ -128,7 +128,7 @@ class QualityEvaluation(luigi.Task):
                 print('Extracting dataset name failed')
                 exit(1)
 
-        store_experiment_result(results, ds_name, host, database, user, password, port)
+        store_experiment_result(results, ds_name)
 
         # with self.output().open('w') as file_writer:
         #     for eval in results:

@@ -12,36 +12,34 @@ from tqdm import tqdm
 
 from dataprep import DataPreparation
 from definitions import ROOT_DIR
+from helper import load_database_config
 
 
 class UploadDatasetDB(luigi.Task):
 
     dataset_path = luigi.Parameter()
     dataset_name = luigi.Parameter()
-    result_path = luigi.Parameter('./init/')
-    port = luigi.IntParameter(default=5432)
-    # conn_config = luigi.DictParameter({'host': 'localhost', 'database': 'aggrdet', 'user': 'aggrdet', 'password': '123456'})
 
     def complete(self):
         return False
 
     def requires(self):
-        return DataPreparation(self.dataset_path, self.result_path)
+        return DataPreparation(self.dataset_path)
 
     def run(self):
         with self.input().open('r') as file_reader:
             json_file_dicts = np.array([json.loads(line) for line in file_reader])
-        with open(os.path.join(ROOT_DIR, '../config.yaml'), 'r') as stream:
-            config = yaml.safe_load(stream)
-        upload_dataset_db(ds_name=self.dataset_name, json_file_dicts=json_file_dicts, conn_config=config)
+        upload_dataset_db(ds_name=self.dataset_name, json_file_dicts=json_file_dicts)
 
 
-def upload_dataset_db(ds_name, json_file_dicts, conn_config):
-    host = conn_config['instances'][0]['host']
-    database = conn_config['instances'][0]['dbname']
-    user = conn_config['instances'][0]['username']
-    password = conn_config['instances'][0]['password']
-    port = conn_config['instances'][0]['port']
+def upload_dataset_db(ds_name, json_file_dicts):
+    """
+    Upload the dataset to the fact tables (dataset, file, aggregation) in the database.
+
+    :param ds_name: dataset name
+    :param json_file_dicts: list of dicts each of which represents the properties of a single file in the dataset
+    """
+    host, database, user, password, port = load_database_config()
     with psycopg2.connect(dbname=database, user=user, host=host, password=password, port=port) as conn:
         if not isinstance(conn, psycopg2.extensions.connection):
             raise RuntimeError('Postgresql connection initialization failed.')
@@ -63,7 +61,6 @@ def upload_dataset_db(ds_name, json_file_dicts, conn_config):
             rows = curs.fetchall()
 
             if [(False,)] == rows:
-                # print('Dataset entry does not exist. Create an entry for it.')
                 query = "insert into dataset(id, name) values (default, '%s') returning id;" % ds_name
                 curs.execute(query)
                 dataset_id = curs.fetchone()[0]
@@ -74,31 +71,37 @@ def upload_dataset_db(ds_name, json_file_dicts, conn_config):
 
             query = "insert into file(id, dataset_id, file_name, sheet_name, number_format, content) values (default, %s, %s, %s, %s, %s) returning id;"
             insert_anno_query = "insert into aggregation(id, file_id, aggregator, aggregatees, operator, error_level) values (default, %s, Row(%s, %s)::cell_index, %s::cell_index[], %s, %s);"
-            for file_dict in tqdm(json_file_dicts, desc='Loading files'):
+            for file_dict in tqdm(json_file_dicts, desc='Upload dataset to DB'):
                 file_name = file_dict['file_name']
                 sheet_name = file_dict['table_id']
                 number_format = file_dict['number_format']
                 content = file_dict['table_array']
-                # content = json.dumps({'content': values})
-                annos = file_dict['aggregation_annotations']
+                aggregation_annotations = file_dict['aggregation_annotations']
                 q = curs.mogrify(query, [dataset_id, file_name, sheet_name, number_format, content])
                 curs.execute(q)
 
                 file_id = curs.fetchone()[0]
 
-                for anno in annos:
-                    aggregator = anno['aggregator_index']
-                    aggregatees = [tuple(e) for e in anno['aggregatee_indices']]
-                    operator = anno['operator']
-                    error_level = anno['error_bound']
+                for annotation in aggregation_annotations:
+                    aggregator = annotation['aggregator_index']
+                    aggregatees = [tuple(e) for e in annotation['aggregatee_indices']]
+                    operator = annotation['operator']
+                    error_level = annotation['error_bound']
                     q = curs.mogrify(insert_anno_query, [file_id, aggregator[0], aggregator[1], aggregatees, operator_type[operator], error_level])
                     curs.execute(q)
             conn.commit()
-        curs.close()
-    conn.close()
+        # curs.close()
+    # conn.close()
 
 
-def store_experiment_result(exp_results, ds_name, host, database, user, password, port):
+def store_experiment_result(exp_results, ds_name):
+    """
+    Store experiment results in database.
+
+    :param exp_results: experiment results. A list of dicts, each dict includes various properties of a single file
+    :param ds_name: dataset name
+    """
+    host, database, user, password, port = load_database_config()
     with psycopg2.connect(dbname=database, user=user, host=host, password=password, port=port) as conn:
         if not isinstance(conn, psycopg2.extensions.connection):
             raise RuntimeError('Postgresql connection initialization failed.')
@@ -108,7 +111,7 @@ def store_experiment_result(exp_results, ds_name, host, database, user, password
 
             if len(exp_results) == 0:
                 log(level=Warning, msg='No results returned.')
-                return
+                exit(1)
 
             algorithm = exp_results[0]['parameters']['algorithm']
             error_level = exp_results[0]['parameters']['error_level']
@@ -146,13 +149,8 @@ def store_experiment_result(exp_results, ds_name, host, database, user, password
                                       json.dumps(result['incorrect']),
                                       json.dumps(result['false_positive'])])
             curs.executemany(query, inserted_list)
-    conn.close()
+    # conn.close()
 
 
 if __name__ == '__main__':
-    config = json.dumps({'host': 'localhost', 'database': 'aggrdet', 'user': 'aggrdet', 'password': '123456', 'table': 'experiment', 'columns': ''})
-    # luigi.run(['--local-scheduler', '--log-level', 'WARNING', '--dataset-name', 'troy', '--dataset-path', '../data/troy.jl.gz'],
-    #           main_task_cls=UploadDatasetDB)
-    # luigi.run(['--local-scheduler', '--log-level', 'WARNING', '--db-config', config, '--dataset-path', '../data/troy.jl.gz'], main_task_cls=StoreExperimentResultsDB)
-    # store_experiment_result(None, 'localhost', 'aggrdet', 'aggrdet', '123456')
     luigi.run()

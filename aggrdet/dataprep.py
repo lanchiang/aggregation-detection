@@ -9,7 +9,7 @@ import numpy as np
 from luigi.mock import MockTarget
 from tqdm import tqdm
 
-from data import transform_number_format
+from data import normalize_file
 
 
 class LoadDataset(luigi.Task):
@@ -17,11 +17,9 @@ class LoadDataset(luigi.Task):
     This task loads the dataset stored in a json.jl.gz compressed file into the memory.
     """
     dataset_path = luigi.Parameter()
-    result_path = luigi.Parameter()
 
     def output(self):
         return MockTarget('dataset-loading')
-        # return luigi.LocalTarget(os.path.join(self.result_path, 'file.jl'))
 
     def run(self):
         with gzip.open(self.dataset_path, mode='r') as ds_json_file:
@@ -42,24 +40,19 @@ class LoadDataset(luigi.Task):
 class DataPreparation(luigi.Task):
 
     dataset_path = luigi.Parameter()
-    result_path = luigi.Parameter()
 
     def output(self):
         return MockTarget('data-preparation')
-        # return luigi.LocalTarget(os.path.join(self.result_path, 'file-error-level-adjusted.jl'))
 
     def requires(self):
-        return LoadDataset(self.dataset_path, self.result_path)
+        return LoadDataset(self.dataset_path)
 
     def run(self):
         with self.input().open('r') as file_reader:
             json_file_dicts = np.array([json.loads(line) for line in file_reader])
 
         for file_dict in tqdm(json_file_dicts, desc='Data preparation'):
-            file_values = np.array(transform_number_format(np.copy(file_dict['table_array']), file_dict['number_format']))
-            # for index, value in np.ndenumerate(file_values):
-            #     normalized_value = normalize_number_value(value, file_dict['number_format'])
-            #     file_values[index] = normalized_value
+            file_values = np.array(normalize_file(np.copy(file_dict['table_array']), file_dict['number_format']))
             for aggr_annotation in file_dict['aggregation_annotations']:
                 aggor_index = tuple(aggr_annotation['aggregator_index'])
                 aggor_value = re.sub('[^0-9,.\-+\s]', '', file_values[aggor_index])

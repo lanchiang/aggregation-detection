@@ -2,15 +2,9 @@
 
 while getopts ":do:x" opt; do
   case $opt in
-  d)
-    dataPath="$OPTARG"
-    ;;
-  x)
-    extendStrategy=true
-    ;;
-  o)
-    outputPath="$OPTARG"
-    ;;
+  d) dataPath="$OPTARG";;
+  x) extendStrategy=true;;
+  o) outputPath="$OPTARG";;
   \?)
     echo "Invalid option: -$OPTARG" >&2
     exit 1
@@ -39,9 +33,6 @@ if [[ $outputPath == "" ]]; then
 else
   outputPath=$outputPath
 fi
-
-#rm -r $outputPath
-#echo "Result path: $outputPath"
 
 if [[ $extendStrategy != true ]]; then
   extendStrategy=false

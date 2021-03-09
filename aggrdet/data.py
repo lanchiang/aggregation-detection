@@ -13,7 +13,7 @@ class NumberFormat:
         self.pattern = pattern
 
 
-def transform_number_format(file: np.ndarray, number_format: str):
+def normalize_file(file: np.ndarray, number_format: str):
     """
     Transform the number cells of the given file with the given number format.
 
