@@ -53,6 +53,7 @@ def detect_number_format(table: np.ndarray, sample=0.5) -> str:
     else:
         test_set_size = table.size
 
+    # Todo: the way applicable number formats are computed is wrong.
     count = 0
     for index, value in np.ndenumerate(table):
         if not value:
@@ -66,7 +67,11 @@ def detect_number_format(table: np.ndarray, sample=0.5) -> str:
             count += 1
         if count == test_set_size:
             break
-    # detected = max(test_set_fit_formats, key=lambda x: len(test_set_fit_formats[x]))
+
+    # Return only those that covers all the tested cells.
+    # Todo: now does not work due to numberic row/column headers.
+    # fit_formats = {k: v for k, v in test_set_fit_formats.items() if len(v) == count}
+    # test_set_fit_formats = fit_formats if len(fit_formats) > 0 else test_set_fit_formats
     # return detected
     return test_set_fit_formats.keys()
 

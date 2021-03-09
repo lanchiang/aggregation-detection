@@ -8,6 +8,7 @@ from decimal import Decimal
 
 import luigi
 import numpy as np
+from luigi.mock import MockTarget
 from tqdm import tqdm
 
 from data import normalize_number_value
@@ -18,9 +19,11 @@ class LoadDataset(luigi.Task):
     This task loads the dataset stored in a json.jl.gz compressed file into the memory.
     """
     dataset_path = luigi.Parameter()
+    result_path = luigi.Parameter()
 
     def output(self):
-        return luigi.LocalTarget('temp/file.jl')
+        return MockTarget('dataset-loading')
+        # return luigi.LocalTarget(os.path.join(self.result_path, 'file.jl'))
 
     def run(self):
         with gzip.open(self.dataset_path, mode='r') as ds_json_file:
@@ -30,7 +33,8 @@ class LoadDataset(luigi.Task):
                                    'table_array': jfd['table_array'],
                                    'aggregation_annotations': jfd['aggregation_annotations'],
                                    'number_format': jfd['number_format'],
-                                   'annotations': jfd['annotations']}) for jfd in tqdm(json_file_dicts)]
+                                   'annotations': jfd['annotations'],
+                                   'exec_time': {}}) for jfd in json_file_dicts]
 
         with self.output().open('w') as file_writer:
             for curated_json_file in dataset:
@@ -40,18 +44,20 @@ class LoadDataset(luigi.Task):
 class DataPreparation(luigi.Task):
 
     dataset_path = luigi.Parameter()
+    result_path = luigi.Parameter()
 
     def output(self):
-        return luigi.LocalTarget('temp/file-error-level-adjusted.jl')
+        return MockTarget('data-preparation')
+        # return luigi.LocalTarget(os.path.join(self.result_path, 'file-error-level-adjusted.jl'))
 
     def requires(self):
-        return LoadDataset(self.dataset_path)
+        return LoadDataset(self.dataset_path, self.result_path)
 
     def run(self):
         with self.input().open('r') as file_reader:
             json_file_dicts = np.array([json.loads(line) for line in file_reader])
 
-        for file_dict in tqdm(json_file_dicts):
+        for file_dict in tqdm(json_file_dicts, desc='Data preparation'):
             # print(file_dict['file_name'])
             # if file_dict['file_name'] != 'C10003':
             #     continue
@@ -59,8 +65,6 @@ class DataPreparation(luigi.Task):
             for index, value in np.ndenumerate(file_values):
                 normalized_value = normalize_number_value(value, file_dict['number_format'])
                 file_values[index] = normalized_value
-            if not file_dict['aggregation_annotations']:
-                continue
             for aggr_annotation in file_dict['aggregation_annotations']:
                 aggor_index = tuple(aggr_annotation['aggregator_index'])
                 # if aggor_index != (6,5):
@@ -90,24 +94,35 @@ class DataPreparation(luigi.Task):
                     expected = sum([aggee_value for aggee_value in aggee_values])
                     actual = aggor_value
                 elif operator == 'Subtract':
-                    expected1 = abs(aggee_values[0] - aggee_values[1])
-                    expected2 = abs(aggee_values[1] - aggee_values[0])
+                    expected = abs(aggee_values[0] - aggee_values[1])
+                    # expected2 = abs(aggee_values[1] - aggee_values[0])
                     actual = abs(aggor_value)
-                    expected = expected1 if abs(actual - expected1) < abs(actual - expected2) else expected2
+                    # expected = expected1 if abs(actual - expected1) < abs(actual - expected2) else expected2
                 elif operator == 'Average':
                     expected = sum([aggee_value for aggee_value in aggee_values]) / len(aggee_values)
                     actual = aggor_value
                 elif operator == 'Percentage':
-                    # Todo:
+                    # Todo: how to?:
                     actual = aggor_value
                     expected = actual + Decimal(aggr_annotation['error_bound'])
                     pass
                 else:
                     raise RuntimeError('Should not come here.')
                 error = abs(expected - actual)
-                if float(error) == 182.6:
-                    stop = 0
+                if actual == 0.0:
+                    error_percent = -1.0
+                else:
+                    error_percent = abs((expected - actual) / actual)
+                    if operator == 'Subtract':
+                        if error_percent > 1:
+                            stop = 0
+                        # print(error_percent)
+                # absolute error level
                 aggr_annotation['error_bound'] = float(error)
+                # aggr_annotation['error_level_percent'] = round(float(error_percent), 4)
+
+                # relative error level
+                aggr_annotation['error_level_percent'] = float(error_percent)
             pass
 
         with self.output().open('w') as file_writer:
