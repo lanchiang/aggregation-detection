@@ -75,10 +75,10 @@ class AggregationRelationForest:
         results = []
         for result in self.pool:
             if isinstance(result, Tree):
-                json_dict = list(result.to_dict(with_data=False).items())
-                # json_dict['aggregator_index'] = json_dic
-                # json_dict['operator'] = operator
-                results.append(json_dict)
+                result_list = list(result.to_dict(with_data=False).items())
+                for r in result_list:
+                    results.append((r[0], r[1]['children'], operator))
+                # results.append(result_list)
         return results
 
     def results_to_list(self, operator):

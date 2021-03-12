@@ -115,6 +115,7 @@ CREATE TABLE experiment
     recall real NOT NULL,
     f1 real NOT NULL,
     exec_time real NOT NULL, -- runtime for the whole dataset, might not be useful, nevertheless record it.
+    time_stamp timestamp NOT NULL DEFAULT now(),
     CONSTRAINT fk_fileset_id FOREIGN KEY(dataset_id) REFERENCES dataset(id)
 )
 

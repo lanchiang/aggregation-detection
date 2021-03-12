@@ -1,6 +1,7 @@
 # Created by lan at 2021/2/11
 import gzip
 import json
+import os
 import re
 from decimal import Decimal
 
@@ -17,9 +18,15 @@ class LoadDataset(luigi.Task):
     This task loads the dataset stored in a json.jl.gz compressed file into the memory.
     """
     dataset_path = luigi.Parameter()
+    result_path = luigi.Parameter()
+    debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
 
     def output(self):
-        return MockTarget('dataset-loading')
+        # return luigi.LocalTarget(os.path.join(self.result_path, 'load-dataset.jl'))
+        if self.debug:
+            return luigi.LocalTarget(os.path.join(self.result_path, 'load-dataset.jl'))
+        else:
+            return MockTarget('dataset-loading')
 
     def run(self):
         with gzip.open(self.dataset_path, mode='r') as ds_json_file:
@@ -40,12 +47,18 @@ class LoadDataset(luigi.Task):
 class DataPreparation(luigi.Task):
 
     dataset_path = luigi.Parameter()
+    result_path = luigi.Parameter('/temp')
+    debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
 
     def output(self):
-        return MockTarget('data-preparation')
+        # return luigi.LocalTarget(os.path.join(self.result_path, 'data-preparation.jl'))
+        if self.debug:
+            return luigi.LocalTarget(os.path.join(self.result_path, 'data-preparation.jl'))
+        else:
+            return MockTarget('data-preparation')
 
     def requires(self):
-        return LoadDataset(self.dataset_path)
+        return LoadDataset(self.dataset_path, self.result_path, debug=self.debug)
 
     def run(self):
         with self.input().open('r') as file_reader:

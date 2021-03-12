@@ -23,8 +23,11 @@ if [ "$initDB" = true ]; then
 fi
 
 # run baseline
-sh ./run-sum-quality-eval.sh -a Baseline -d ../../data/troy.jl.gz
+#sh ./run-sum-quality-eval.sh -a Baseline -d ../../data/troy.jl.gz
 
 # run aggrdet
-sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/troy.jl.gz
-sh ./run-sum-quality-eval.sh -x -a Aggrdet -d ../../data/troy.jl.gz
+#sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/troy.jl.gz
+#sh ./run-sum-quality-eval.sh -x -a Aggrdet -d ../../data/troy.jl.gz
+
+# run aggrdet
+sh ./run-sum-quality-eval.sh -l -a Aggrdet -d ../../data/troy.jl.gz

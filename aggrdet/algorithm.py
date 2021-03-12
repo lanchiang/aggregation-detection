@@ -6,6 +6,7 @@ import json
 import math
 import os
 import time
+from concurrent.futures import TimeoutError
 from collections import OrderedDict
 from copy import deepcopy, copy
 from decimal import Decimal
@@ -16,8 +17,10 @@ from typing import List
 import luigi
 import numpy as np
 from luigi.mock import MockTarget
+from pebble import ProcessPool
 from tqdm import tqdm
 
+from bruteforce import delayed_bruteforce
 from data import detect_number_format, normalize_file
 from dataprep import DataPreparation
 from elements import AggregationRelation, CellIndex, Direction, Cell
@@ -297,19 +300,25 @@ class NumberFormatNormalization(luigi.Task):
     """
 
     dataset_path = luigi.Parameter()
+    result_path = luigi.Parameter('/temp')
     sample_ratio = luigi.FloatParameter(default=0.1)
+    debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
 
     def output(self):
-        return MockTarget(fn='number-format-normalization')
+        # return luigi.LocalTarget(os.path.join(self.result_path, 'normalize_number_format.jl'))
+        if self.debug:
+            return luigi.LocalTarget(os.path.join(self.result_path, 'normalize_number_format.jl'))
+        else:
+            return MockTarget(fn='number-format-normalization')
 
     def requires(self):
-        return DataPreparation(self.dataset_path)
+        return DataPreparation(self.dataset_path, self.result_path, debug=self.debug)
 
     def run(self):
         with self.input().open('r') as input_file:
             dump_json_string = []
             files_dict = [json.loads(line) for line in input_file]
-            for file_json_dict in tqdm(files_dict, desc='Number format selection.'):
+            for file_json_dict in tqdm(files_dict, desc='Number format selection'):
                 start_time = time.time()
                 file_value_array = np.array(file_json_dict['table_array'])
                 number_format = detect_number_format(file_value_array)
@@ -335,14 +344,117 @@ class SumDetectionRowWise(luigi.Task):
     error_bound = luigi.FloatParameter(default=1)
     satisfied_vote_ratio = luigi.FloatParameter(default=0.5)
     error_strategy = luigi.Parameter(default='ratio')
-    use_extend_strategy = luigi.BoolParameter(default=False)
+    use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+    use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+    timeout = luigi.FloatParameter(default=300)
+    debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
 
     def output(self):
-        return MockTarget('row-wise-detection')
         # return luigi.LocalTarget(os.path.join(self.result_path, 'row-wise.jl'))
+        if self.debug:
+            return luigi.LocalTarget(os.path.join(self.result_path, 'row-wise.jl'))
+        else:
+            return MockTarget('row-wise-detection')
 
     def requires(self):
         return NumberFormatNormalization(self.dataset_path, self.result_path)
+
+    def detect_row_wise_sum(self, file_dict):
+        start_time = time.time()
+        file_dict['aggregation_detection_result'] = {}
+        for number_format in file_dict['valid_number_formats']:
+
+            # Todo: just for fair timeout comparison
+            if number_format != file_dict['number_format']:
+                continue
+
+            table_value = np.array(file_dict['valid_number_formats'][number_format])
+
+            # do dynamic error bound
+            error_bound = self.error_bound if self.error_bound >= 0 else detect_error_bound(table_value)
+
+            file_cells = np.full_like(table_value, fill_value=table_value, dtype=object)
+            for index, value in np.ndenumerate(table_value):
+                file_cells[index] = Cell(CellIndex(index[0], index[1]), value)
+
+            forests_by_rows = [AggregationRelationForest(row_cells) for row_cells in file_cells]
+            forest_by_row_index = {}
+            for index, forest in enumerate(forests_by_rows):
+                forest_by_row_index[index] = forest
+            collected_results_by_row = {}
+            while True:
+                ar_cands_by_row = [(detect_proximity_aggregation_relations(forest, error_bound, self.error_strategy), forest) for forest in
+                                   forests_by_rows]
+                # get all non empty ar_cands
+                ar_cands_by_row = list(filter(lambda x: bool(x[0]), ar_cands_by_row))
+                if not ar_cands_by_row:
+                    break
+
+                forest_indexed_by_ar_cand = {}
+                for ar_cands, forest in ar_cands_by_row:
+                    for ar_cand in ar_cands:
+                        forest_indexed_by_ar_cand[ar_cand[0]] = forest
+
+                ar_cands_by_row, forests_by_rows = list(zip(*ar_cands_by_row))
+
+                ar_cands_by_column_index = prune_conflict_ar_cands(ar_cands_by_row, axis=0)
+
+                # prune the candidates that do not appear in X% of all rows. X equals to satisfied_vote_ratio
+                # ar_cands_by_row = prune_occasional_ar_cands(ar_cands_by_row, self.satisfied_vote_ratio, axis=0)
+
+                if not bool(ar_cands_by_column_index):
+                    break
+
+                for _, ar_cands in ar_cands_by_column_index.items():
+                    for i in range(len(ar_cands)):
+                        ar_cands[i] = (ar_cands[i], forest_indexed_by_ar_cand[ar_cands[i]])
+
+                extended_ar_cands_w_forest = []
+                for ar_column_indices, ar_cands_w_forest in ar_cands_by_column_index.items():
+                    [forest.consume_relation(ar_cand) for ar_cand, forest in ar_cands_w_forest]
+                    confirmed_ars_row_index = [ar_cand.aggregator.cell_index.row_index for ar_cand, _ in ar_cands_w_forest]
+                    if self.use_extend_strategy:
+                        num_rows = file_cells.shape[0]
+                        index_aggregator = ar_column_indices[0]
+                        for i in range(num_rows):
+                            # create an extended aggregation and make it consumed by the forest for this row
+                            extended_ar_cand_aggor = Cell(CellIndex(i, index_aggregator), table_value[i, index_aggregator])
+                            extended_ar_cand_aggees = tuple([Cell(CellIndex(i, j), table_value[i, j]) for j in ar_column_indices[1]])
+                            extended_ar_cand_direction = ar_cands_w_forest[0][0].direction
+                            extended_ar_cand = AggregationRelation(extended_ar_cand_aggor, extended_ar_cand_aggees, extended_ar_cand_direction)
+                            extended_ar_cands_w_forest.append((extended_ar_cand, forest_by_row_index[i]))
+
+                            if i in confirmed_ars_row_index or i not in forest_by_row_index:
+                                continue
+                            try:
+                                float(table_value[i, index_aggregator])
+                            except Exception:
+                                continue
+                            else:
+                                forest_by_row_index[i].consume_relation(extended_ar_cand)
+
+                for _, ar_cands_w_forest in ar_cands_by_column_index.items():
+                    [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in ar_cands_w_forest]
+                if self.use_extend_strategy:
+                    [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in extended_ar_cands_w_forest]
+
+            for _, forest in forest_by_row_index.items():
+                results_dict = forest.results_to_str('Sum')
+                # collected_results_by_row[forest] = list(itertools.chain(*[result_dict for result_dict in results_dict]))
+                collected_results_by_row[forest] = results_dict
+
+            if self.use_delayed_bruteforce:
+                delayed_bruteforce(collected_results_by_row, table_value, error_bound, axis=0)
+                remove_duplicates(collected_results_by_row)
+
+            collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_row.items()]))
+
+            file_dict['aggregation_detection_result'][number_format] = collected_results
+        end_time = time.time()
+        exec_time = end_time - start_time
+        file_dict['exec_time'][self.__class__.__name__] = exec_time
+        # file_dict_output.append(file_dict)
+        return file_dict
 
     def run(self):
         # step 1: obtain all non-hopping aggregation candidates for each row
@@ -356,102 +468,147 @@ class SumDetectionRowWise(luigi.Task):
         # step 4: select the correct tree, and filter out incorrect aggregation candidates.
 
         with self.input().open('r') as input_file:
-            # pool = Pool(cpu_count())
-            file_dict_output = []
             files_dict = [json.loads(line) for line in input_file]
-            for file_dict in tqdm(files_dict, desc='Row wise sum detection'):
-                start_time = time.time()
-                # step 1
-                # print(file_dict['file_name'])
-                # if file_dict['file_name'] != 'C10001':
-                #     continue
+
+            files_dict_map = {}
+            for file_dict in files_dict:
+                file_dict['detected_number_format'] = ''
+                file_dict['detected_aggregations'] = []
                 file_dict['aggregation_detection_result'] = {}
-                for number_format in file_dict['valid_number_formats']:
-                    table_value = np.array(file_dict['valid_number_formats'][number_format])
+                file_dict['exec_time'][self.__class__.__name__] = -1000
+                file_dict['parameters'] = {}
+                file_dict['parameters']['error_level'] = self.error_bound
+                file_dict['parameters']['error_strategy'] = self.error_strategy
+                file_dict['parameters']['use_extend_strategy'] = self.use_extend_strategy
+                file_dict['parameters']['use_delayed_bruteforce_strategy'] = self.use_delayed_bruteforce
+                file_dict['parameters']['timeout'] = self.timeout
+                # file_dict['parameters']['algorithm'] = self.__class__.__name__
 
-                    # do dynamic error bound
-                    error_bound = self.error_bound if self.error_bound >= 0 else detect_error_bound(table_value)
+                files_dict_map[(file_dict['file_name'], file_dict['table_id'])] = file_dict
 
-                    # agg_cands = pool.starmap(self.process_row, zip(non_negative_values, range(len(table_value))))
-                    file_cells = np.full_like(table_value, fill_value=table_value, dtype=object)
-                    for index, value in np.ndenumerate(table_value):
-                        file_cells[index] = Cell(CellIndex(index[0], index[1]), value)
+            print('Detection row-wise sum aggregations.')
 
-                    forests_by_rows = [AggregationRelationForest(row_cells) for row_cells in file_cells]
-                    forest_by_row_index = {}
-                    for index, forest in enumerate(forests_by_rows):
-                        forest_by_row_index[index] = forest
-                    collected_results_by_row = {}
-                    while True:
-                        ar_cands_by_row = [(detect_proximity_aggregation_relations(forest, error_bound, self.error_strategy), forest) for forest in
-                                           forests_by_rows]
-                        # get all non empty ar_cands
-                        ar_cands_by_row = list(filter(lambda x: bool(x[0]), ar_cands_by_row))
-                        if not ar_cands_by_row:
-                            break
+            cpu_count = int(os.cpu_count() / 2)
 
-                        forest_indexed_by_ar_cand = {}
-                        for ar_cands, forest in ar_cands_by_row:
-                            for ar_cand in ar_cands:
-                                forest_indexed_by_ar_cand[ar_cand[0]] = forest
+            with ProcessPool(max_workers=cpu_count, max_tasks=1) as pool:
+                returned_result = pool.map(self.detect_row_wise_sum, files_dict, timeout=self.timeout).result()
 
-                        ar_cands_by_row, forests_by_rows = list(zip(*ar_cands_by_row))
+            print('Detection process is done. Now write results to file.')
 
-                        ar_cands_by_column_index = prune_conflict_ar_cands(ar_cands_by_row, axis=0)
-
-                        # prune the candidates that do not appear in X% of all rows. X equals to satisfied_vote_ratio
-                        # ar_cands_by_row = prune_occasional_ar_cands(ar_cands_by_row, self.satisfied_vote_ratio, axis=0)
-
-                        if not bool(ar_cands_by_column_index):
-                            break
-
-                        for _, ar_cands in ar_cands_by_column_index.items():
-                            for i in range(len(ar_cands)):
-                                ar_cands[i] = (ar_cands[i], forest_indexed_by_ar_cand[ar_cands[i]])
-
-                        extended_ar_cands_w_forest = []
-                        for ar_column_indices, ar_cands_w_forest in ar_cands_by_column_index.items():
-                            [forest.consume_relation(ar_cand) for ar_cand, forest in ar_cands_w_forest]
-                            confirmed_ars_row_index = [ar_cand.aggregator.cell_index.row_index for ar_cand, _ in ar_cands_w_forest]
-                            if self.use_extend_strategy:
-                                num_rows = file_cells.shape[0]
-                                index_aggregator = ar_column_indices[0]
-                                for i in range(num_rows):
-                                    # create an extended aggregation and make it consumed by the forest for this row
-                                    extended_ar_cand_aggor = Cell(CellIndex(i, index_aggregator), table_value[i, index_aggregator])
-                                    extended_ar_cand_aggees = tuple([Cell(CellIndex(i, j), table_value[i, j]) for j in ar_column_indices[1]])
-                                    extended_ar_cand_direction = ar_cands_w_forest[0][0].direction
-                                    extended_ar_cand = AggregationRelation(extended_ar_cand_aggor, extended_ar_cand_aggees, extended_ar_cand_direction)
-                                    extended_ar_cands_w_forest.append((extended_ar_cand, forest_by_row_index[i]))
-
-                                    if i in confirmed_ars_row_index or i not in forest_by_row_index:
-                                        continue
-                                    try:
-                                        float(table_value[i, index_aggregator])
-                                    except Exception:
-                                        continue
-                                    else:
-                                        forest_by_row_index[i].consume_relation(extended_ar_cand)
-
-                        for _, ar_cands_w_forest in ar_cands_by_column_index.items():
-                            [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in ar_cands_w_forest]
-                        if self.use_extend_strategy:
-                            [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in extended_ar_cands_w_forest]
-
-                    for _, forest in forest_by_row_index.items():
-                        results_dict = forest.results_to_str('Sum')
-                        collected_results_by_row[forest] = list(itertools.chain(*[result_dict for result_dict in results_dict]))
-
-                    collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_row.items()]))
-                    file_dict['aggregation_detection_result'][number_format] = collected_results
-                end_time = time.time()
-                exec_time = end_time - start_time
-                file_dict['exec_time'][self.__class__.__name__] = exec_time
-                file_dict_output.append(file_dict)
+            while True:
+                try:
+                    result = next(returned_result)
+                except StopIteration:
+                    break
+                except TimeoutError:
+                    pass
+                else:
+                    file_name = result['file_name']
+                    sheet_name = result['table_id']
+                    files_dict_map[(file_name, sheet_name)] = result
+                    # print(file_name + '\t' + str(result['exec_time'][self.__class__.__name__]))
 
         with self.output().open('w') as file_writer:
-            for result in file_dict_output:
-                file_writer.write(json.dumps(result) + '\n')
+            for file_output_dict in tqdm(files_dict_map.values(), desc='Serialize results'):
+                file_writer.write(json.dumps(file_output_dict) + '\n')
+
+            # for file_dict in tqdm(files_dict, desc='Row wise sum detection'):
+            #     start_time = time.time()
+            #     # print(file_dict['file_name'])
+            #     # if file_dict['file_name'] != 'C10001':
+            #     #     continue
+            #     file_dict['aggregation_detection_result'] = {}
+            #     for number_format in file_dict['valid_number_formats']:
+            #         table_value = np.array(file_dict['valid_number_formats'][number_format])
+            #
+            #         # do dynamic error bound
+            #         error_bound = self.error_bound if self.error_bound >= 0 else detect_error_bound(table_value)
+            #
+            #         file_cells = np.full_like(table_value, fill_value=table_value, dtype=object)
+            #         for index, value in np.ndenumerate(table_value):
+            #             file_cells[index] = Cell(CellIndex(index[0], index[1]), value)
+            #
+            #         forests_by_rows = [AggregationRelationForest(row_cells) for row_cells in file_cells]
+            #         forest_by_row_index = {}
+            #         for index, forest in enumerate(forests_by_rows):
+            #             forest_by_row_index[index] = forest
+            #         collected_results_by_row = {}
+            #         while True:
+            #             ar_cands_by_row = [(detect_proximity_aggregation_relations(forest, error_bound, self.error_strategy), forest) for forest in
+            #                                forests_by_rows]
+            #             # get all non empty ar_cands
+            #             ar_cands_by_row = list(filter(lambda x: bool(x[0]), ar_cands_by_row))
+            #             if not ar_cands_by_row:
+            #                 break
+            #
+            #             forest_indexed_by_ar_cand = {}
+            #             for ar_cands, forest in ar_cands_by_row:
+            #                 for ar_cand in ar_cands:
+            #                     forest_indexed_by_ar_cand[ar_cand[0]] = forest
+            #
+            #             ar_cands_by_row, forests_by_rows = list(zip(*ar_cands_by_row))
+            #
+            #             ar_cands_by_column_index = prune_conflict_ar_cands(ar_cands_by_row, axis=0)
+            #
+            #             # prune the candidates that do not appear in X% of all rows. X equals to satisfied_vote_ratio
+            #             # ar_cands_by_row = prune_occasional_ar_cands(ar_cands_by_row, self.satisfied_vote_ratio, axis=0)
+            #
+            #             if not bool(ar_cands_by_column_index):
+            #                 break
+            #
+            #             for _, ar_cands in ar_cands_by_column_index.items():
+            #                 for i in range(len(ar_cands)):
+            #                     ar_cands[i] = (ar_cands[i], forest_indexed_by_ar_cand[ar_cands[i]])
+            #
+            #             extended_ar_cands_w_forest = []
+            #             for ar_column_indices, ar_cands_w_forest in ar_cands_by_column_index.items():
+            #                 [forest.consume_relation(ar_cand) for ar_cand, forest in ar_cands_w_forest]
+            #                 confirmed_ars_row_index = [ar_cand.aggregator.cell_index.row_index for ar_cand, _ in ar_cands_w_forest]
+            #                 if self.use_extend_strategy:
+            #                     num_rows = file_cells.shape[0]
+            #                     index_aggregator = ar_column_indices[0]
+            #                     for i in range(num_rows):
+            #                         # create an extended aggregation and make it consumed by the forest for this row
+            #                         extended_ar_cand_aggor = Cell(CellIndex(i, index_aggregator), table_value[i, index_aggregator])
+            #                         extended_ar_cand_aggees = tuple([Cell(CellIndex(i, j), table_value[i, j]) for j in ar_column_indices[1]])
+            #                         extended_ar_cand_direction = ar_cands_w_forest[0][0].direction
+            #                         extended_ar_cand = AggregationRelation(extended_ar_cand_aggor, extended_ar_cand_aggees, extended_ar_cand_direction)
+            #                         extended_ar_cands_w_forest.append((extended_ar_cand, forest_by_row_index[i]))
+            #
+            #                         if i in confirmed_ars_row_index or i not in forest_by_row_index:
+            #                             continue
+            #                         try:
+            #                             float(table_value[i, index_aggregator])
+            #                         except Exception:
+            #                             continue
+            #                         else:
+            #                             forest_by_row_index[i].consume_relation(extended_ar_cand)
+            #
+            #             for _, ar_cands_w_forest in ar_cands_by_column_index.items():
+            #                 [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in ar_cands_w_forest]
+            #             if self.use_extend_strategy:
+            #                 [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in extended_ar_cands_w_forest]
+            #
+            #         for _, forest in forest_by_row_index.items():
+            #             results_dict = forest.results_to_str('Sum')
+            #             # collected_results_by_row[forest] = list(itertools.chain(*[result_dict for result_dict in results_dict]))
+            #             collected_results_by_row[forest] = results_dict
+            #
+            #         if self.use_delayed_bruteforce:
+            #             delayed_bruteforce(collected_results_by_row, table_value, error_bound, axis=0)
+            #             remove_duplicates(collected_results_by_row)
+            #
+            #         collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_row.items()]))
+            #
+            #         file_dict['aggregation_detection_result'][number_format] = collected_results
+            #     end_time = time.time()
+            #     exec_time = end_time - start_time
+            #     file_dict['exec_time'][self.__class__.__name__] = exec_time
+            #     file_dict_output.append(file_dict)
+
+        # with self.output().open('w') as file_writer:
+        #     for result in file_dict_output:
+        #         file_writer.write(json.dumps(result) + '\n')
 
 
 class SumDetectionColumnWise(luigi.Task):
@@ -460,14 +617,122 @@ class SumDetectionColumnWise(luigi.Task):
     error_bound = luigi.FloatParameter(default=1)
     satisfied_vote_ratio = luigi.FloatParameter(default=0.5)
     error_strategy = luigi.Parameter(default='ratio')
-    use_extend_strategy = luigi.BoolParameter(default=False)
+    use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+    use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+    timeout = luigi.FloatParameter(default=300)
+    debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
 
     def output(self):
-        return MockTarget('column-wise-detection')
         # return luigi.LocalTarget(os.path.join(self.result_path, 'column-wise.jl'))
+        if self.debug:
+            return luigi.LocalTarget(os.path.join(self.result_path, 'column-wise.jl'))
+        else:
+            return MockTarget('column-wise-detection')
 
     def requires(self):
-        return NumberFormatNormalization(self.dataset_path, self.result_path)
+        return NumberFormatNormalization(self.dataset_path, self.result_path, debug=self.debug)
+
+    def detect_column_wise_sum(self, file_dict):
+        start_time = time.time()
+        # print(file_dict['file_name'])
+        # if file_dict['file_name'] != 'C10014':
+        #     continue
+        file_dict['aggregation_detection_result'] = {}
+        for number_format in file_dict['valid_number_formats']:
+            # Todo: just for fair timeout comparison
+            if number_format != file_dict['number_format']:
+                continue
+
+            # table_value = np.array(file_dict['table_array'])
+            table_value = np.array(file_dict['valid_number_formats'][number_format])
+
+            # do dynamic error bound
+            error_bound = self.error_bound if self.error_bound >= 0 else detect_error_bound(table_value)
+
+            # agg_cands = pool.starmap(self.process_row, zip(non_negative_values, range(len(table_value))))
+            file_cells = np.full_like(table_value, fill_value=table_value, dtype=object)
+            for index, value in np.ndenumerate(table_value):
+                file_cells[index] = Cell(CellIndex(index[0], index[1]), value)
+
+            forests_by_columns = [AggregationRelationForest(file_cells[:, i]) for i in range(file_cells.shape[1])]
+            forest_by_column_index = {}
+            for index, forest in enumerate(forests_by_columns):
+                forest_by_column_index[index] = forest
+            collected_results_by_column = {}
+            while True:
+                ar_cands_by_column = [(detect_proximity_aggregation_relations(forest, error_bound, self.error_strategy), forest) for forest in
+                                      forests_by_columns]
+                # get all non empty ar_cands
+                ar_cands_by_column = list(filter(lambda x: bool(x[0]), ar_cands_by_column))
+                if not ar_cands_by_column:
+                    break
+
+                forest_indexed_by_ar_cand = {}
+                for ar_cands, forest in ar_cands_by_column:
+                    for ar_cand in ar_cands:
+                        forest_indexed_by_ar_cand[ar_cand[0]] = forest
+
+                ar_cands_by_column, forests_by_columns = list(zip(*ar_cands_by_column))
+
+                ar_cands_by_row_index = prune_conflict_ar_cands(ar_cands_by_column, axis=1)
+                # prune the candidates that do not appear in X% of all rows. X equals to satisfied_vote_ratio
+                # ar_cands_by_column = prune_occasional_ar_cands(ar_cands_by_column, self.satisfied_vote_ratio, axis=1)
+                if not bool(ar_cands_by_row_index):
+                    break
+
+                for _, ar_cands in ar_cands_by_row_index.items():
+                    for i in range(len(ar_cands)):
+                        ar_cands[i] = (ar_cands[i], forest_indexed_by_ar_cand[ar_cands[i]])
+
+                extended_ar_cands_w_forest = []
+                for ar_row_indices, ar_cands_w_forest in ar_cands_by_row_index.items():
+                    [forest.consume_relation(ar_cand) for ar_cand, forest in ar_cands_w_forest]
+                    confirmed_ars_column_index = [ar_cand.aggregator.cell_index.column_index for ar_cand, _ in ar_cands_w_forest]
+                    if self.use_extend_strategy:
+                        num_columns = file_cells.shape[1]
+                        index_aggregator = ar_row_indices[0]
+                        for i in range(num_columns):
+                            # create an extended aggregation and make it consumed by the forest for this column
+                            extended_ar_cand_aggor = Cell(CellIndex(index_aggregator, i), table_value[index_aggregator, i])
+                            extended_ar_cand_aggees = tuple([Cell(CellIndex(j, i), table_value[j, i]) for j in ar_row_indices[1]])
+                            extended_ar_cand_direction = ar_cands_w_forest[0][0].direction
+                            extended_ar_cand = AggregationRelation(extended_ar_cand_aggor, extended_ar_cand_aggees, extended_ar_cand_direction)
+                            extended_ar_cands_w_forest.append((extended_ar_cand, forest_by_column_index[i]))
+
+                            if i in confirmed_ars_column_index or i not in forest_by_column_index:
+                                continue
+                            try:
+                                float(table_value[index_aggregator, i])
+                            except Exception:
+                                continue
+                            else:
+                                # create an extended aggregation and make it consumed by the forest for this column
+                                forest_by_column_index[i].consume_relation(extended_ar_cand)
+
+                # for row_index, ar_cands_w_forest in ar_cands_by_row_index.items():
+                #     [forest.consume_relation(ar_cand) for ar_cand, forest in ar_cands_w_forest]
+                for _, ar_cands_w_forest in ar_cands_by_row_index.items():
+                    [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in ar_cands_w_forest]
+                if self.use_extend_strategy:
+                    [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in extended_ar_cands_w_forest]
+
+            for _, forest in forest_by_column_index.items():
+                results_dict = forest.results_to_str('Sum')
+                # collected_results_by_column[forest] = list(itertools.chain(*[result_dict for result_dict in results_dict]))
+                collected_results_by_column[forest] = results_dict
+
+            if self.use_delayed_bruteforce:
+                delayed_bruteforce(collected_results_by_column, table_value, error_bound, axis=1)
+                remove_duplicates(collected_results_by_column)
+
+            collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_column.items()]))
+            file_dict['aggregation_detection_result'][number_format] = collected_results
+        end_time = time.time()
+        exec_time = end_time - start_time
+        file_dict['exec_time'][self.__class__.__name__] = exec_time
+        # file_dict_output.append(file_dict)
+        # print(file_dict)
+        return file_dict
 
     def run(self):
         # step 1: obtain all non-hopping aggregation candidates for each row
@@ -481,125 +746,188 @@ class SumDetectionColumnWise(luigi.Task):
         # step 4: select the correct tree, and filter out incorrect aggregation candidates.
 
         with self.input().open('r') as input_file:
-            # pool = Pool(cpu_count())
             file_dict_output = []
             files_dict = [json.loads(line) for line in input_file]
-            for file_dict in tqdm(files_dict, desc='Column wise sum detection'):
-                start_time = time.time()
-                # step 1
-                # print(file_dict['file_name'])
-                # if file_dict['file_name'] != 'C10014':
-                #     continue
-                file_dict['aggregation_detection_result'] = {}
-                for number_format in file_dict['valid_number_formats']:
-                    # table_value = np.array(file_dict['table_array'])
-                    table_value = np.array(file_dict['valid_number_formats'][number_format])
 
-                    # do dynamic error bound
-                    error_bound = self.error_bound if self.error_bound >= 0 else detect_error_bound(table_value)
+            files_dict_map = {}
+            for file_dict in files_dict:
+                file_dict['detected_number_format'] = ''
+                file_dict['detected_aggregations'] = []
+                file_dict['exec_time'][self.__class__.__name__] = -1000
+                file_dict['parameters'] = {}
+                file_dict['parameters']['error_level'] = self.error_bound
+                file_dict['parameters']['error_strategy'] = self.error_strategy
+                file_dict['parameters']['use_extend_strategy'] = self.use_extend_strategy
+                file_dict['parameters']['use_delayed_bruteforce_strategy'] = self.use_delayed_bruteforce
+                file_dict['parameters']['timeout'] = self.timeout
+                # file_dict['parameters']['algorithm'] = self.__class__.__name__
 
-                    # agg_cands = pool.starmap(self.process_row, zip(non_negative_values, range(len(table_value))))
-                    file_cells = np.full_like(table_value, fill_value=table_value, dtype=object)
-                    for index, value in np.ndenumerate(table_value):
-                        file_cells[index] = Cell(CellIndex(index[0], index[1]), value)
+                files_dict_map[(file_dict['file_name'], file_dict['table_id'])] = file_dict
 
-                    forests_by_columns = [AggregationRelationForest(file_cells[:, i]) for i in range(file_cells.shape[1])]
-                    forest_by_column_index = {}
-                    for index, forest in enumerate(forests_by_columns):
-                        forest_by_column_index[index] = forest
-                    collected_results_by_column = {}
-                    while True:
-                        ar_cands_by_column = [(detect_proximity_aggregation_relations(forest, error_bound, self.error_strategy), forest) for forest in
-                                              forests_by_columns]
-                        # get all non empty ar_cands
-                        ar_cands_by_column = list(filter(lambda x: bool(x[0]), ar_cands_by_column))
-                        if not ar_cands_by_column:
-                            break
+            print('Detection column-wise sum aggregations.')
 
-                        forest_indexed_by_ar_cand = {}
-                        for ar_cands, forest in ar_cands_by_column:
-                            for ar_cand in ar_cands:
-                                forest_indexed_by_ar_cand[ar_cand[0]] = forest
+            cpu_count = int(os.cpu_count() / 2)
 
-                        ar_cands_by_column, forests_by_columns = list(zip(*ar_cands_by_column))
+            with ProcessPool(max_workers=cpu_count, max_tasks=1) as pool:
+                returned_result = pool.map(self.detect_column_wise_sum, files_dict, timeout=self.timeout).result()
 
-                        ar_cands_by_row_index = prune_conflict_ar_cands(ar_cands_by_column, axis=1)
-                        # prune the candidates that do not appear in X% of all rows. X equals to satisfied_vote_ratio
-                        # ar_cands_by_column = prune_occasional_ar_cands(ar_cands_by_column, self.satisfied_vote_ratio, axis=1)
-                        if not bool(ar_cands_by_row_index):
-                            break
+            print('Detection process is done. Now write results to file.')
 
-                        for _, ar_cands in ar_cands_by_row_index.items():
-                            for i in range(len(ar_cands)):
-                                ar_cands[i] = (ar_cands[i], forest_indexed_by_ar_cand[ar_cands[i]])
-
-                        extended_ar_cands_w_forest = []
-                        for ar_row_indices, ar_cands_w_forest in ar_cands_by_row_index.items():
-                            [forest.consume_relation(ar_cand) for ar_cand, forest in ar_cands_w_forest]
-                            confirmed_ars_column_index = [ar_cand.aggregator.cell_index.column_index for ar_cand, _ in ar_cands_w_forest]
-                            if self.use_extend_strategy:
-                                num_columns = file_cells.shape[1]
-                                index_aggregator = ar_row_indices[0]
-                                for i in range(num_columns):
-                                    # create an extended aggregation and make it consumed by the forest for this column
-                                    extended_ar_cand_aggor = Cell(CellIndex(index_aggregator, i), table_value[index_aggregator, i])
-                                    extended_ar_cand_aggees = tuple([Cell(CellIndex(j, i), table_value[j, i]) for j in ar_row_indices[1]])
-                                    extended_ar_cand_direction = ar_cands_w_forest[0][0].direction
-                                    extended_ar_cand = AggregationRelation(extended_ar_cand_aggor, extended_ar_cand_aggees, extended_ar_cand_direction)
-                                    extended_ar_cands_w_forest.append((extended_ar_cand, forest_by_column_index[i]))
-
-                                    if i in confirmed_ars_column_index or i not in forest_by_column_index:
-                                        continue
-                                    try:
-                                        float(table_value[index_aggregator, i])
-                                    except Exception:
-                                        continue
-                                    else:
-                                        # create an extended aggregation and make it consumed by the forest for this column
-                                        forest_by_column_index[i].consume_relation(extended_ar_cand)
-
-                        # for row_index, ar_cands_w_forest in ar_cands_by_row_index.items():
-                        #     [forest.consume_relation(ar_cand) for ar_cand, forest in ar_cands_w_forest]
-                        for _, ar_cands_w_forest in ar_cands_by_row_index.items():
-                            [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in ar_cands_w_forest]
-                        if self.use_extend_strategy:
-                            [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in extended_ar_cands_w_forest]
-
-                    for _, forest in forest_by_column_index.items():
-                        results_dict = forest.results_to_str('Sum')
-                        collected_results_by_column[forest] = list(itertools.chain(*[result_dict for result_dict in results_dict]))
-
-                    collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_column.items()]))
-                    file_dict['aggregation_detection_result'][number_format] = collected_results
-                end_time = time.time()
-                exec_time = end_time - start_time
-                file_dict['exec_time'][self.__class__.__name__] = exec_time
-                file_dict_output.append(file_dict)
+            while True:
+                try:
+                    result = next(returned_result)
+                except StopIteration:
+                    break
+                except TimeoutError:
+                    pass
+                else:
+                    file_name = result['file_name']
+                    sheet_name = result['table_id']
+                    files_dict_map[(file_name, sheet_name)] = result
+                    # print(file_name + '\t' + str(result['exec_time'][self.__class__.__name__]))
 
         with self.output().open('w') as file_writer:
-            for result in file_dict_output:
-                file_writer.write(json.dumps(result) + '\n')
+            for file_output_dict in tqdm(files_dict_map.values(), desc='Serialize results'):
+                file_writer.write(json.dumps(file_output_dict) + '\n')
+
+            # for file_dict in tqdm(files_dict, desc='Column wise sum detection'):
+                # start_time = time.time()
+                # # step 1
+                # # print(file_dict['file_name'])
+                # # if file_dict['file_name'] != 'C10014':
+                # #     continue
+                # file_dict['aggregation_detection_result'] = {}
+                # for number_format in file_dict['valid_number_formats']:
+                #     # table_value = np.array(file_dict['table_array'])
+                #     table_value = np.array(file_dict['valid_number_formats'][number_format])
+                #
+                #     # do dynamic error bound
+                #     error_bound = self.error_bound if self.error_bound >= 0 else detect_error_bound(table_value)
+                #
+                #     # agg_cands = pool.starmap(self.process_row, zip(non_negative_values, range(len(table_value))))
+                #     file_cells = np.full_like(table_value, fill_value=table_value, dtype=object)
+                #     for index, value in np.ndenumerate(table_value):
+                #         file_cells[index] = Cell(CellIndex(index[0], index[1]), value)
+                #
+                #     forests_by_columns = [AggregationRelationForest(file_cells[:, i]) for i in range(file_cells.shape[1])]
+                #     forest_by_column_index = {}
+                #     for index, forest in enumerate(forests_by_columns):
+                #         forest_by_column_index[index] = forest
+                #     collected_results_by_column = {}
+                #     while True:
+                #         ar_cands_by_column = [(detect_proximity_aggregation_relations(forest, error_bound, self.error_strategy), forest) for forest in
+                #                               forests_by_columns]
+                #         # get all non empty ar_cands
+                #         ar_cands_by_column = list(filter(lambda x: bool(x[0]), ar_cands_by_column))
+                #         if not ar_cands_by_column:
+                #             break
+                #
+                #         forest_indexed_by_ar_cand = {}
+                #         for ar_cands, forest in ar_cands_by_column:
+                #             for ar_cand in ar_cands:
+                #                 forest_indexed_by_ar_cand[ar_cand[0]] = forest
+                #
+                #         ar_cands_by_column, forests_by_columns = list(zip(*ar_cands_by_column))
+                #
+                #         ar_cands_by_row_index = prune_conflict_ar_cands(ar_cands_by_column, axis=1)
+                #         # prune the candidates that do not appear in X% of all rows. X equals to satisfied_vote_ratio
+                #         # ar_cands_by_column = prune_occasional_ar_cands(ar_cands_by_column, self.satisfied_vote_ratio, axis=1)
+                #         if not bool(ar_cands_by_row_index):
+                #             break
+                #
+                #         for _, ar_cands in ar_cands_by_row_index.items():
+                #             for i in range(len(ar_cands)):
+                #                 ar_cands[i] = (ar_cands[i], forest_indexed_by_ar_cand[ar_cands[i]])
+                #
+                #         extended_ar_cands_w_forest = []
+                #         for ar_row_indices, ar_cands_w_forest in ar_cands_by_row_index.items():
+                #             [forest.consume_relation(ar_cand) for ar_cand, forest in ar_cands_w_forest]
+                #             confirmed_ars_column_index = [ar_cand.aggregator.cell_index.column_index for ar_cand, _ in ar_cands_w_forest]
+                #             if self.use_extend_strategy:
+                #                 num_columns = file_cells.shape[1]
+                #                 index_aggregator = ar_row_indices[0]
+                #                 for i in range(num_columns):
+                #                     # create an extended aggregation and make it consumed by the forest for this column
+                #                     extended_ar_cand_aggor = Cell(CellIndex(index_aggregator, i), table_value[index_aggregator, i])
+                #                     extended_ar_cand_aggees = tuple([Cell(CellIndex(j, i), table_value[j, i]) for j in ar_row_indices[1]])
+                #                     extended_ar_cand_direction = ar_cands_w_forest[0][0].direction
+                #                     extended_ar_cand = AggregationRelation(extended_ar_cand_aggor, extended_ar_cand_aggees, extended_ar_cand_direction)
+                #                     extended_ar_cands_w_forest.append((extended_ar_cand, forest_by_column_index[i]))
+                #
+                #                     if i in confirmed_ars_column_index or i not in forest_by_column_index:
+                #                         continue
+                #                     try:
+                #                         float(table_value[index_aggregator, i])
+                #                     except Exception:
+                #                         continue
+                #                     else:
+                #                         # create an extended aggregation and make it consumed by the forest for this column
+                #                         forest_by_column_index[i].consume_relation(extended_ar_cand)
+                #
+                #         # for row_index, ar_cands_w_forest in ar_cands_by_row_index.items():
+                #         #     [forest.consume_relation(ar_cand) for ar_cand, forest in ar_cands_w_forest]
+                #         for _, ar_cands_w_forest in ar_cands_by_row_index.items():
+                #             [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in ar_cands_w_forest]
+                #         if self.use_extend_strategy:
+                #             [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in extended_ar_cands_w_forest]
+                #
+                #     for _, forest in forest_by_column_index.items():
+                #         results_dict = forest.results_to_str('Sum')
+                #         # collected_results_by_column[forest] = list(itertools.chain(*[result_dict for result_dict in results_dict]))
+                #         collected_results_by_column[forest] = results_dict
+                #
+                #     if self.use_delayed_bruteforce:
+                #         delayed_bruteforce(collected_results_by_column, table_value, error_bound, axis=1)
+                #         remove_duplicates(collected_results_by_column)
+                #
+                #     collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_column.items()]))
+                #     file_dict['aggregation_detection_result'][number_format] = collected_results
+                # end_time = time.time()
+                # exec_time = end_time - start_time
+                # file_dict['exec_time'][self.__class__.__name__] = exec_time
+                # file_dict_output.append(file_dict)
+
+        # with self.output().open('w') as file_writer:
+        #     for result in file_dict_output:
+        #         file_writer.write(json.dumps(result) + '\n')
+
+
+def remove_duplicates(collected_results_by_line):
+    for tree, aggregations in collected_results_by_line.items():
+        sorted_aggregations = []
+        for aggregation in aggregations:
+            sorted_ar = (aggregation[0], sorted(aggregation[1]), aggregation[2])
+            sorted_aggregations.append(sorted_ar)
+        deduplicated = []
+        for aggregation in sorted_aggregations:
+            if aggregation not in deduplicated:
+                deduplicated.append(aggregation)
+        collected_results_by_line[tree] = deduplicated
 
 
 class Aggrdet(luigi.Task):
     dataset_path = luigi.Parameter()
-    result_path = luigi.Parameter('./temp/')
+    result_path = luigi.Parameter('/temp/')
     error_level = luigi.FloatParameter(default=0)
     satisfied_vote_ratio = luigi.FloatParameter(default=0.5)
     error_strategy = luigi.Parameter(default='ratio')
-    use_extend_strategy = luigi.BoolParameter(default=False)
+    use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+    use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     timeout = luigi.FloatParameter(default=300)
+    debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
 
     def output(self):
-        return MockTarget('aggrdet')
-        # return luigi.LocalTarget(os.path.join(self.result_path, 'number-formatted.jl'))
+        # return luigi.LocalTarget(os.path.join(self.result_path, 'aggrdet.jl'))
+        if self.debug:
+            return luigi.LocalTarget(os.path.join(self.result_path, 'aggrdet.jl'))
+        else:
+            return MockTarget('aggrdet')
 
     def requires(self):
         return {'sum_det_row_wise': SumDetectionRowWise(self.dataset_path, self.result_path, self.error_level, self.satisfied_vote_ratio, self.error_strategy,
-                                                        self.use_extend_strategy),
+                                                        self.use_extend_strategy, self.use_delayed_bruteforce, debug=self.debug, timeout=self.timeout),
                 'sum_det_col_wise': SumDetectionColumnWise(self.dataset_path, self.result_path, self.error_level, self.satisfied_vote_ratio,
-                                                           self.error_strategy,
-                                                           self.use_extend_strategy)}
+                                                           self.error_strategy, self.use_extend_strategy, self.use_delayed_bruteforce, debug=self.debug, timeout=self.timeout)}
 
     def run(self):
         with self.input()['sum_det_row_wise'].open('r') as file_reader:
@@ -610,62 +938,58 @@ class Aggrdet(luigi.Task):
         result_dict = []
         for row_wise, column_wise in tqdm(zip(row_wise_json, column_wise_json), desc='Select number format'):
             start_time = time.time()
-            # print(row_wise['file_name'])
-            # if row_wise['file_name'] != 'C10003':
-            #     continue
+            file_output_dict = copy(row_wise)
             row_wise_results_by_number_format = row_wise['aggregation_detection_result']
             col_wise_results_by_number_format = column_wise['aggregation_detection_result']
             nf_cands = set(row_wise_results_by_number_format.keys())
             nf_cands.update(set(col_wise_results_by_number_format.keys()))
             nf_cands = sorted(list(nf_cands))
-            results = []
-            # results = {}
-            for number_format in nf_cands:
-                row_wise_aggrs = row_wise_results_by_number_format[number_format]
-                row_ar = set()
-                for r in row_wise_aggrs:
-                    aggregator = ast.literal_eval(r[0])
-                    aggregator = Cell(CellIndex(aggregator[0], aggregator[1]), None)
-                    aggregatees = []
-                    for e in r[1].values():
-                        aggregatees.extend([ast.literal_eval(v) for v in e])
-                    aggregatees = [Cell(CellIndex(e[0], e[1]), None) for e in aggregatees]
-                    aggregatees.sort()
-                    row_ar.add(AggregationRelation(aggregator, tuple(aggregatees), None))
-                col_wise_aggrs = col_wise_results_by_number_format[number_format]
-                col_ar = set()
-                for r in col_wise_aggrs:
-                    aggregator = ast.literal_eval(r[0])
-                    aggregator = Cell(CellIndex(aggregator[0], aggregator[1]), None)
-                    aggregatees = []
-                    for e in r[1].values():
-                        aggregatees.extend([ast.literal_eval(v) for v in e])
-                    aggregatees = [Cell(CellIndex(e[0], e[1]), None) for e in aggregatees]
-                    aggregatees.sort()
-                    col_ar.add(AggregationRelation(aggregator, tuple(aggregatees), None))
-                det_aggrs = row_ar
-                det_aggrs.update(col_ar)
-                results.append((number_format, det_aggrs))
-                # results[number_format] = det_aggrs
-            # number_format = max(results, key=lambda x: len(results[x]))
-            # print([(k, len(v)) for k, v in results.items()])
-            results.sort(key=lambda x: len(x[1]), reverse=True)
-            number_format = results[0][0]
-            # print([(k, len(v)) for k, v in results])
-            # print(number_format)
-            file_output_dict = copy(row_wise)
-            file_output_dict['detected_number_format'] = number_format
-            det_aggrs = []
-            # for det_aggr in results[number_format]:
-            for det_aggr in results[0][1]:
-                if isinstance(det_aggr, AggregationRelation):
-                    aees = [[aee.cell_index.row_index, aee.cell_index.column_index] for aee in det_aggr.aggregatees]
-                    aor = [det_aggr.aggregator.cell_index.row_index, det_aggr.aggregator.cell_index.column_index]
-                    det_aggrs.append({'aggregator_index': aor, 'aggregatee_indices': aees})
-            file_output_dict['detected_aggregations'] = det_aggrs
-            file_output_dict.pop('aggregation_detection_result', None)
-            file_output_dict['number_formatted_values'] = file_output_dict['valid_number_formats'][number_format]
-            file_output_dict.pop('valid_number_formats', None)
+            if row_wise['exec_time']['SumDetectionRowWise'] < 0 or column_wise['exec_time']['SumDetectionColumnWise'] < 0:
+                pass
+            if not bool(nf_cands):
+                pass
+            else:
+                print(row_wise['file_name'])
+                results = []
+                for number_format in nf_cands:
+                    row_wise_aggrs = row_wise_results_by_number_format[number_format]
+                    row_ar = set()
+                    for r in row_wise_aggrs:
+                        aggregator = ast.literal_eval(r[0])
+                        aggregator = Cell(CellIndex(aggregator[0], aggregator[1]), None)
+                        aggregatees = []
+                        for e in r[1]:
+                            aggregatees.append(ast.literal_eval(e))
+                        aggregatees = [Cell(CellIndex(e[0], e[1]), None) for e in aggregatees]
+                        aggregatees.sort()
+                        row_ar.add(AggregationRelation(aggregator, tuple(aggregatees), None))
+                    col_wise_aggrs = col_wise_results_by_number_format[number_format]
+                    col_ar = set()
+                    for r in col_wise_aggrs:
+                        aggregator = ast.literal_eval(r[0])
+                        aggregator = Cell(CellIndex(aggregator[0], aggregator[1]), None)
+                        aggregatees = []
+                        for e in r[1]:
+                            aggregatees.append(ast.literal_eval(e))
+                        aggregatees = [Cell(CellIndex(e[0], e[1]), None) for e in aggregatees]
+                        aggregatees.sort()
+                        col_ar.add(AggregationRelation(aggregator, tuple(aggregatees), None))
+                    det_aggrs = row_ar
+                    det_aggrs.update(col_ar)
+                    results.append((number_format, det_aggrs))
+                results.sort(key=lambda x: len(x[1]), reverse=True)
+                number_format = results[0][0]
+                file_output_dict['detected_number_format'] = number_format
+                det_aggrs = []
+                for det_aggr in results[0][1]:
+                    if isinstance(det_aggr, AggregationRelation):
+                        aees = [[aee.cell_index.row_index, aee.cell_index.column_index] for aee in det_aggr.aggregatees]
+                        aor = [det_aggr.aggregator.cell_index.row_index, det_aggr.aggregator.cell_index.column_index]
+                        det_aggrs.append({'aggregator_index': aor, 'aggregatee_indices': aees})
+                file_output_dict['detected_aggregations'] = det_aggrs
+                file_output_dict.pop('aggregation_detection_result', None)
+                file_output_dict['number_formatted_values'] = file_output_dict['valid_number_formats'][number_format]
+                file_output_dict.pop('valid_number_formats', None)
 
             end_time = time.time()
             exec_time = end_time - start_time

@@ -1,30 +1,28 @@
 # Created by lan at 2021/2/22
 import json
-import os
 from logging import log
 
 import luigi
 import numpy as np
 import psycopg2
 import psycopg2.extensions
-import yaml
 from tqdm import tqdm
 
 from dataprep import DataPreparation
-from definitions import ROOT_DIR
-from helper import load_database_config
+from helpers import load_database_config
 
 
 class UploadDatasetDB(luigi.Task):
 
     dataset_path = luigi.Parameter()
     dataset_name = luigi.Parameter()
+    result_path = luigi.Parameter(default='/temp/')
 
     def complete(self):
         return False
 
     def requires(self):
-        return DataPreparation(self.dataset_path)
+        return DataPreparation(self.dataset_path, self.result_path)
 
     def run(self):
         with self.input().open('r') as file_reader:
@@ -110,8 +108,10 @@ def store_experiment_result(exp_results, ds_name):
                 raise RuntimeError('Postgresql cursor initialization failed.')
 
             if len(exp_results) == 0:
-                log(level=Warning, msg='No results returned.')
-                exit(1)
+                # log(level=Warning, msg='No results returned.')
+                print('No results returned.')
+                # exit(1)
+                return
 
             algorithm = exp_results[0]['parameters']['algorithm']
             error_level = exp_results[0]['parameters']['error_level']
@@ -135,6 +135,7 @@ def store_experiment_result(exp_results, ds_name):
                     'values (%s, (select id from dataset where name = %s), %s, %s, %s, %s, %s, %s, %s, %s) returning id;'
             q = curs.mogrify(query, [algorithm, ds_name, error_level, error_strategy, extended_strategy, timeout, precision, recall, f1, exec_time])
             # q = curs.mogrify(query, [algorithm, 'troy', error_level, error_strategy, extended_strategy, timeout, precision, recall, f1, exec_time])
+            # print(q)
             curs.execute(q)
             experiment_id = curs.fetchone()[0]
 
