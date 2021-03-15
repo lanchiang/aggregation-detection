@@ -1,6 +1,7 @@
 # Created by lan at 2021/1/2
 import os
 import re
+from enum import Enum
 
 import yaml
 
@@ -9,6 +10,13 @@ from definitions import ROOT_DIR
 empty_cell_values = ['', '-', 'n/a', 'null', '.', '..', '...', 'x', 'X', '#']
 
 hard_empty_cell_values = ['']
+
+
+class AggregationOperator(Enum):
+    SUM = 'Sum'
+    SUBTRACT = 'Subtract'
+    AVERAGE = 'Average'
+    PERCENTAGE = 'Percentage'
 
 
 def is_empty_cell(value: str) -> bool:
