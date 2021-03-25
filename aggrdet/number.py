@@ -1,58 +1,13 @@
 # Created by lan at 2021/3/10
 import decimal
-import json
 import logging
-import os
-import time
+import re
 from decimal import Decimal, InvalidOperation
 
-import luigi
 import numpy as np
-from luigi.mock import MockTarget
-from tqdm import tqdm
-
-from data import detect_number_format, normalize_file
-from dataprep import DataPreparation
 
 
-class NumberFormatNormalization(luigi.Task):
-    """
-    This task runs the number format normalization task on the initial input file, and produces a set of valid number formats on each file.
-    """
-
-    dataset_path = luigi.Parameter()
-    result_path = luigi.Parameter('/debug')
-    sample_ratio = luigi.FloatParameter(default=0.2)
-    debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
-
-    def output(self):
-        if self.debug:
-            return luigi.LocalTarget(os.path.join(self.result_path, 'normalize_number_format.jl'))
-        else:
-            return MockTarget(fn='number-format-normalization')
-
-    def requires(self):
-        return DataPreparation(self.dataset_path, self.result_path, debug=self.debug)
-
-    def run(self):
-        with self.input().open('r') as input_file:
-            files_dict = [json.loads(line) for line in input_file]
-
-            for file_dict in tqdm(files_dict, desc='Number format selection'):
-                start_time = time.time()
-                number_format = detect_number_format(np.array(file_dict['table_array']), self.sample_ratio)
-                transformed_values_by_number_format = {}
-                for nf in number_format:
-                    transformed_values_by_number_format[nf] = normalize_file(file_dict['table_array'], nf)
-                file_dict['valid_number_formats'] = transformed_values_by_number_format
-
-                end_time = time.time()
-                exec_time = end_time - start_time
-                file_dict['exec_time'][self.__class__.__name__] = exec_time
-
-        with self.output().open('w') as file_writer:
-            for file_dict in files_dict:
-                file_writer.write(json.dumps(file_dict) + '\n')
+currency_symbols = ['$', '€', '£']
 
 
 def get_indices_number_cells(file_array) -> set:
@@ -78,10 +33,43 @@ def str2decimal(value, default=0.0):
         use_default = True
 
     if use_default:
-        try:
-            value = Decimal(default)  # if a value cannot be converted to number, set it to zero.
-            # Todo: setting the non-convertible value to zero does not make sense to all aggregation type, for example, average.
-        except InvalidOperation as _:
-            logging.getLogger('String to decimal').error('Given default value cannot be converted to a decimal.')
-            exit(1)
+        if default is None:
+            value = default
+        else:
+            try:
+                value = Decimal(default)  # if a value cannot be converted to number, set it to zero.
+            except InvalidOperation as _:
+                logging.getLogger('String to decimal').error('Given default value cannot be converted to a decimal.')
+                exit(1)
     return value
+
+
+def parse_number_string(value: str) -> str:
+    """
+    Parse the number string with heuristics.
+    For example, if the number is wrapped with a pair of round brackets, remove the brackets and pre-fix the number with a "-"
+
+    :param value:
+    :return:
+    """
+    wrapped_with_brackets_pattern = '^\(.+\)$'
+    matches = re.match(wrapped_with_brackets_pattern, value)
+    if matches:
+        processed_value = '-' + value[1:len(value)-1]
+    else:
+        processed_value = value
+
+    if processed_value.endswith('%'):
+        processed_value = processed_value.rstrip('%')
+        try:
+            processed_value = Decimal(processed_value)
+        except decimal.InvalidOperation as ioe:
+            pass
+        else:
+            processed_value = str(Decimal(processed_value / 100))
+
+    # all currency characters are removed
+    processed_value = ''.join(i for i in processed_value if not i in currency_symbols)
+    # processed_value = re.sub('[^0-9,.\-+\s]', '', processed_value)
+    processed_value = processed_value.strip()
+    return processed_value

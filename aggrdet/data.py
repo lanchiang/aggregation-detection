@@ -4,6 +4,8 @@ from typing import List
 
 import numpy as np
 
+from number import parse_number_string
+
 
 class NumberFormat:
 
@@ -23,8 +25,9 @@ def normalize_file(file: np.ndarray, number_format: str):
     """
     trans_file = np.copy(file)
     for index, value in np.ndenumerate(trans_file):
-        matches = re.match(NumberFormatPattern.get(number_format), value.strip())
-        trans_file[index] = normalize_number(matches[0], number_format) if matches is not None else value
+        processed_value = parse_number_string(value)
+        matches = re.match(NumberFormatPattern.get(number_format), processed_value.strip())
+        trans_file[index] = normalize_number(matches[0], number_format) if matches is not None else processed_value
     return trans_file.tolist()
 
 
@@ -110,10 +113,11 @@ def sniff_number_format(value: str) -> List[str]:
     :param value: value string
     :return: all applicable number formats on the given value string
     """
+    parsed_number_string = parse_number_string(value)
     fit_formats = []
     for format_pattern in NumberFormatPattern.items():
         pattern = format_pattern[1]
-        matches = re.match(pattern, value)
+        matches = re.match(pattern, parsed_number_string)
         if matches is not None:
             fit_formats.append(format_pattern[0])
     return fit_formats

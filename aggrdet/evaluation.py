@@ -15,30 +15,29 @@ class QualityEvaluation(luigi.Task):
     dataset_path = luigi.Parameter()
     algorithm = luigi.Parameter(default='Aggrdet')
     error_level = luigi.FloatParameter(default=0)
-    satisfied_vote_ratio = luigi.FloatParameter(default=0.5)
     error_strategy = luigi.Parameter(default='ratio')
     timeout = luigi.FloatParameter(default=300)
     use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     verbose = luigi.BoolParameter(default=True, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
-    result_path = luigi.Parameter(default='temp/')
+    result_path = luigi.Parameter(default='./debug/')
 
     def complete(self):
         return False
 
     def requires(self):
         if self.algorithm == 'Aggrdet':
-            return Aggrdet(self.dataset_path, self.result_path, self.error_level, self.satisfied_vote_ratio,
-                           self.error_strategy, self.use_extend_strategy, self.use_delayed_bruteforce, debug=self.debug, timeout=self.timeout)
+            return Aggrdet(self.dataset_path, self.result_path, self.error_level, self.error_strategy,
+                            self.use_extend_strategy, self.use_delayed_bruteforce, debug=self.debug, timeout=self.timeout)
         elif self.algorithm == 'Baseline':
-            return Baseline(dataset_path=self.dataset_path, error_level=self.error_level, timeout=self.timeout, verbose=self.verbose)
+            return Baseline(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level, timeout=self.timeout, verbose=self.verbose, debug=self.debug)
 
     def run(self):
         if self.verbose:
             print("Parameter summary: \n Dataset path: %s \n Error level: %s \n Error calculation strategy: %s \n Use aggregation extension strategy: %s "
-                  "\n Use delay brute force strategy: %s" %
-                  (self.dataset_path, self.error_level, self.error_strategy, self.use_extend_strategy, self.use_delayed_bruteforce))
+                  "\n Timeout: %s \n Use delayed brute-force strategy: %s" %
+                  (self.dataset_path, self.error_level, self.error_strategy, self.use_extend_strategy, self.timeout, self.use_delayed_bruteforce))
         results = []
         with self.input().open('r') as file_reader:
             results_dict = [json.loads(line) for line in file_reader]
@@ -52,6 +51,7 @@ class QualityEvaluation(luigi.Task):
             ground_truth = result_dict['aggregation_annotations']
             pred_raw = result_dict['detected_aggregations']
             pred = []
+            # print(result_dict['file_name'])
             for ar in pred_raw:
                 aggregator_index = ar['aggregator_index']
                 aggregatee_indices = ar['aggregatee_indices']
@@ -91,7 +91,6 @@ class QualityEvaluation(luigi.Task):
                         if gt['operator'] != 'Sum' and gt['operator'] != 'Subtract':
                             continue
                         if gt['operator'] == 'Sum':
-                            # match = aggor == gt['aggregator_index'] and sorted(aggees) == sorted(gt['aggregatee_indices'])
                             match = is_aggregation_equal((gt['aggregator_index'], gt['aggregatee_indices']), (aggor, aggees), result_dict['table_array'])
                         else:
                             gt_aggor = gt['aggregatee_indices'][0]
@@ -99,6 +98,7 @@ class QualityEvaluation(luigi.Task):
                             match = aggor == gt_aggor and aggees == sorted(gt_aggees)
                         matches.append(match)
                     if not any(matches):
+                        # Todo: false positives have different format from false negatives and true positives.
                         false_positive_cases.append(p)
 
             result = copy(result_dict)

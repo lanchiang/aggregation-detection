@@ -16,10 +16,11 @@ from luigi.mock import MockTarget
 from pebble import ProcessPool
 from tqdm import tqdm
 
+from approach.aggrdet.detections import SumDetection, rank_numeric_cells
 from bruteforce import delayed_bruteforce
 from elements import AggregationRelation, CellIndex, Direction, Cell
 from helpers import is_empty_cell, hard_empty_cell_values
-from number import NumberFormatNormalization
+from dataprep import NumberFormatNormalization
 from tree import AggregationRelationForest
 
 
@@ -258,6 +259,8 @@ class SumDetectionRowWise(luigi.Task):
 
             table_value = np.array(file_dict['valid_number_formats'][number_format])
 
+            ranking_file_array = rank_numeric_cells(table_value, axis=0)
+
             file_cells = np.full_like(table_value, fill_value=table_value, dtype=object)
             for index, value in np.ndenumerate(table_value):
                 file_cells[index] = Cell(CellIndex(index[0], index[1]), value)
@@ -329,7 +332,7 @@ class SumDetectionRowWise(luigi.Task):
                 collected_results_by_row[forest] = results_dict
 
             if self.use_delayed_bruteforce:
-                delayed_bruteforce(collected_results_by_row, table_value, self.error_bound, axis=0)
+                delayed_bruteforce(collected_results_by_row, table_value, ranking_file_array, self.error_bound, axis=0)
                 remove_duplicates(collected_results_by_row)
 
             collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_row.items()]))
@@ -433,6 +436,8 @@ class SumDetectionColumnWise(luigi.Task):
             # table_value = np.array(file_dict['table_array'])
             table_value = np.array(file_dict['valid_number_formats'][number_format])
 
+            ranking_file_array = rank_numeric_cells(table_value, axis=1)
+
             # agg_cands = pool.starmap(self.process_row, zip(non_negative_values, range(len(table_value))))
             file_cells = np.full_like(table_value, fill_value=table_value, dtype=object)
             for index, value in np.ndenumerate(table_value):
@@ -506,7 +511,7 @@ class SumDetectionColumnWise(luigi.Task):
                 collected_results_by_column[forest] = results_dict
 
             if self.use_delayed_bruteforce:
-                delayed_bruteforce(collected_results_by_column, table_value, self.error_bound, axis=1)
+                delayed_bruteforce(collected_results_by_column, table_value, ranking_file_array, self.error_bound, axis=1)
                 remove_duplicates(collected_results_by_column)
 
             collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_column.items()]))
@@ -569,7 +574,6 @@ class SumDetectionColumnWise(luigi.Task):
                     file_name = result['file_name']
                     sheet_name = result['table_id']
                     files_dict_map[(file_name, sheet_name)] = result
-                    # print(file_name + '\t' + str(result['exec_time'][self.__class__.__name__]))
 
         with self.output().open('w') as file_writer:
             for file_output_dict in tqdm(files_dict_map.values(), desc='Serialize results'):
@@ -591,13 +595,13 @@ def remove_duplicates(collected_results_by_line):
 
 class Aggrdet(luigi.Task):
     dataset_path = luigi.Parameter()
-    result_path = luigi.Parameter('/temp/')
+    result_path = luigi.Parameter('./debug/')
     error_level = luigi.FloatParameter(default=0)
-    satisfied_vote_ratio = luigi.FloatParameter(default=0.5)
     error_strategy = luigi.Parameter(default='ratio')
     use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     timeout = luigi.FloatParameter(default=300)
+
     debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
 
     def output(self):
@@ -607,35 +611,33 @@ class Aggrdet(luigi.Task):
             return MockTarget('aggrdet')
 
     def requires(self):
-        return {'sum_det_row_wise': SumDetectionRowWise(self.dataset_path, self.result_path, self.error_level, self.satisfied_vote_ratio, self.error_strategy,
-                                                        self.use_extend_strategy, self.use_delayed_bruteforce, debug=self.debug, timeout=self.timeout),
-                'sum_det_col_wise': SumDetectionColumnWise(self.dataset_path, self.result_path, self.error_level, self.satisfied_vote_ratio,
-                                                           self.error_strategy, self.use_extend_strategy, self.use_delayed_bruteforce, debug=self.debug, timeout=self.timeout)}
+        # return {'sum_det_row_wise': SumDetectionRowWise(self.dataset_path, self.result_path, self.error_level, self.satisfied_vote_ratio, self.error_strategy,
+        #                                                 self.use_extend_strategy, self.use_delayed_bruteforce, debug=self.debug, timeout=self.timeout),
+        #         'sum_det_col_wise': SumDetectionColumnWise(self.dataset_path, self.result_path, self.error_level, self.satisfied_vote_ratio,
+        #                                                    self.error_strategy, self.use_extend_strategy, self.use_delayed_bruteforce, debug=self.debug, timeout=self.timeout)}
+        return {'sum_detection': SumDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+                                              use_extend_strategy=self.use_extend_strategy,
+                                              use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout, debug=self.debug)}
 
     def run(self):
-        with self.input()['sum_det_row_wise'].open('r') as file_reader:
-            row_wise_json = [json.loads(line) for line in file_reader]
-        with self.input()['sum_det_col_wise'].open('r') as file_reader:
-            column_wise_json = [json.loads(line) for line in file_reader]
+        with self.input()['sum_detection'].open('r') as file_reader:
+            sum_detection_results = [json.loads(line) for line in file_reader]
 
         result_dict = []
-        for row_wise, column_wise in tqdm(zip(row_wise_json, column_wise_json), desc='Select number format'):
+        for result in tqdm(sum_detection_results, desc='Select number format'):
             start_time = time.time()
-            file_output_dict = copy(row_wise)
-            row_wise_results_by_number_format = row_wise['aggregation_detection_result']
-            col_wise_results_by_number_format = column_wise['aggregation_detection_result']
-            nf_cands = set(row_wise_results_by_number_format.keys())
-            nf_cands.update(set(col_wise_results_by_number_format.keys()))
+            file_output_dict = copy(result)
+            result_by_number_format = result['aggregation_detection_result']
+            nf_cands = set(result_by_number_format.keys())
             nf_cands = sorted(list(nf_cands))
-            if row_wise['exec_time']['SumDetectionRowWise'] < 0 or column_wise['exec_time']['SumDetectionColumnWise'] < 0:
+            if result['exec_time']['SumDetection'] < 0:
                 pass
             if not bool(nf_cands):
                 pass
             else:
-                # print(row_wise['file_name'])
                 results = []
                 for number_format in nf_cands:
-                    row_wise_aggrs = row_wise_results_by_number_format[number_format]
+                    row_wise_aggrs = result_by_number_format[number_format]
                     row_ar = set()
                     for r in row_wise_aggrs:
                         aggregator = ast.literal_eval(r[0])
@@ -646,19 +648,7 @@ class Aggrdet(luigi.Task):
                         aggregatees = [Cell(CellIndex(e[0], e[1]), None) for e in aggregatees]
                         aggregatees.sort()
                         row_ar.add(AggregationRelation(aggregator, tuple(aggregatees), None))
-                    col_wise_aggrs = col_wise_results_by_number_format[number_format]
-                    col_ar = set()
-                    for r in col_wise_aggrs:
-                        aggregator = ast.literal_eval(r[0])
-                        aggregator = Cell(CellIndex(aggregator[0], aggregator[1]), None)
-                        aggregatees = []
-                        for e in r[1]:
-                            aggregatees.append(ast.literal_eval(e))
-                        aggregatees = [Cell(CellIndex(e[0], e[1]), None) for e in aggregatees]
-                        aggregatees.sort()
-                        col_ar.add(AggregationRelation(aggregator, tuple(aggregatees), None))
                     det_aggrs = row_ar
-                    det_aggrs.update(col_ar)
                     results.append((number_format, det_aggrs))
                 results.sort(key=lambda x: len(x[1]), reverse=True)
                 number_format = results[0][0]
@@ -676,14 +666,12 @@ class Aggrdet(luigi.Task):
 
             end_time = time.time()
             exec_time = end_time - start_time
-            r_exec_time = row_wise['exec_time']
-            c_exec_time = column_wise['exec_time']
-            file_output_dict['exec_time'] = {**r_exec_time, **c_exec_time}
             file_output_dict['exec_time'][self.__class__.__name__] = exec_time
             file_output_dict['parameters'] = {}
             file_output_dict['parameters']['error_level'] = self.error_level
             file_output_dict['parameters']['error_strategy'] = self.error_strategy
             file_output_dict['parameters']['use_extend_strategy'] = self.use_extend_strategy
+            file_output_dict['parameters']['use_delayed_bruteforce_strategy'] = self.use_delayed_bruteforce
             file_output_dict['parameters']['timeout'] = self.timeout
             file_output_dict['parameters']['algorithm'] = self.__class__.__name__
 
@@ -692,6 +680,7 @@ class Aggrdet(luigi.Task):
         with self.output().open('w') as file_writer:
             for file_output_dict in result_dict:
                 file_writer.write(json.dumps(file_output_dict) + '\n')
+        pass
 
 
 def eliminate_negative(table_value: np.ndarray):

@@ -16,7 +16,7 @@ class UploadDatasetDB(luigi.Task):
 
     dataset_path = luigi.Parameter()
     dataset_name = luigi.Parameter()
-    result_path = luigi.Parameter(default='/temp/')
+    result_path = luigi.Parameter(default='/debug/')
 
     def complete(self):
         return False
@@ -117,6 +117,7 @@ def store_experiment_result(exp_results, ds_name):
             error_level = exp_results[0]['parameters']['error_level']
             error_strategy = exp_results[0]['parameters']['error_strategy']
             extended_strategy = exp_results[0]['parameters']['use_extend_strategy']
+            use_delayed_bruteforce_strategy = exp_results[0]['parameters']['use_delayed_bruteforce_strategy']
             timeout = exp_results[0]['parameters']['timeout']
 
             results = [(len(result['correct']), len(result['incorrect']), len(result['false_positive']),
@@ -131,10 +132,10 @@ def store_experiment_result(exp_results, ds_name):
 
             exec_time = sum([r[3] for r in results])
 
-            query = 'insert into experiment(algorithm, dataset_id, error_level, error_strategy, extended_strategy, timeout, precision, recall, f1, exec_time) ' \
-                    'values (%s, (select id from dataset where name = %s), %s, %s, %s, %s, %s, %s, %s, %s) returning id;'
-            q = curs.mogrify(query, [algorithm, ds_name, error_level, error_strategy, extended_strategy, timeout, precision, recall, f1, exec_time])
-            # q = curs.mogrify(query, [algorithm, 'troy', error_level, error_strategy, extended_strategy, timeout, precision, recall, f1, exec_time])
+            query = 'insert into experiment(algorithm, dataset_id, error_level, error_strategy, extended_strategy, delayed_bruteforce_strategy, timeout, precision, recall, f1, exec_time) ' \
+                    'values (%s, (select id from dataset where name = %s), %s, %s, %s, %s, %s, %s, %s, %s, %s) returning id;'
+            q = curs.mogrify(query, [algorithm, ds_name, error_level, error_strategy, extended_strategy, use_delayed_bruteforce_strategy, timeout, precision, recall, f1, exec_time])
+            # q = curs.mogrify(query, [algorithm, 'troy', error_level, error_strategy, extended_strategy, use_delayed_bruteforce_strategy, timeout, precision, recall, f1, exec_time])
             # print(q)
             curs.execute(q)
             experiment_id = curs.fetchone()[0]

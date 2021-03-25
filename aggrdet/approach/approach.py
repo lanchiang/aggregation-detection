@@ -3,12 +3,11 @@ import os
 from abc import ABC, abstractmethod
 
 import luigi
-from luigi.mock import MockTarget
 
-from algorithm import NumberFormatNormalization
+from dataprep import NumberFormatNormalization
 
 
-class Approach(luigi.Task, ABC):
+class Approach(ABC):
 
     @abstractmethod
     def detect_row_wise_aggregations(self, file_dict):
@@ -19,7 +18,7 @@ class Approach(luigi.Task, ABC):
         pass
 
 
-class AggregationDetection(ABC, Approach):
+class AggregationDetection(luigi.Task, Approach):
     dataset_path = luigi.Parameter()
     result_path = luigi.Parameter(default='/debug/')
     error_level = luigi.FloatParameter(default=0)
@@ -28,17 +27,8 @@ class AggregationDetection(ABC, Approach):
     timeout = luigi.FloatParameter(default=300)
     debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
 
-    def output(self):
-        if self.debug:
-            return luigi.LocalTarget(os.path.join(self.result_path, 'aggregation-detection.jl'))
-        else:
-            return MockTarget('aggregation-detection')
-
     def requires(self):
-        return NumberFormatNormalization(self.dataset_path, self.result_path)
-
-    def run(self):
-        self.detect_row_wise_aggregations(None)
+        return NumberFormatNormalization(self.dataset_path, self.result_path, debug=self.debug)
 
 
 class BruteForce(Approach):
