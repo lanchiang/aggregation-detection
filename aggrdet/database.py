@@ -16,7 +16,7 @@ class UploadDatasetDB(luigi.Task):
 
     dataset_path = luigi.Parameter()
     dataset_name = luigi.Parameter()
-    result_path = luigi.Parameter(default='/temp/')
+    result_path = luigi.Parameter(default='/debug/')
 
     def complete(self):
         return False
@@ -92,7 +92,7 @@ def upload_dataset_db(ds_name, json_file_dicts):
     # conn.close()
 
 
-def store_experiment_result(exp_results, ds_name):
+def store_experiment_result(exp_results, ds_name, eval_only_aggor):
     """
     Store experiment results in database.
 
@@ -117,10 +117,15 @@ def store_experiment_result(exp_results, ds_name):
             error_level = exp_results[0]['parameters']['error_level']
             error_strategy = exp_results[0]['parameters']['error_strategy']
             extended_strategy = exp_results[0]['parameters']['use_extend_strategy']
+            use_delayed_bruteforce_strategy = exp_results[0]['parameters']['use_delayed_bruteforce_strategy']
             timeout = exp_results[0]['parameters']['timeout']
 
-            results = [(len(result['correct']), len(result['incorrect']), len(result['false_positive']),
-                        sum([et for et in result['exec_time'].values()])) for result in exp_results]
+            if not eval_only_aggor:
+                results = [(len(result['correct']), len(result['incorrect']), len(result['false_positive']),
+                            sum([et for et in result['exec_time'].values()])) for result in exp_results]
+            else:
+                results = [(len(result['tp_only_aggor']), len(result['fn_only_aggor']), len(result['fp_only_aggor']),
+                            sum([et for et in result['exec_time'].values()])) for result in exp_results]
 
             true_positives = sum([r[0] for r in results])
             false_negatives = sum([r[1] for r in results])
@@ -131,11 +136,13 @@ def store_experiment_result(exp_results, ds_name):
 
             exec_time = sum([r[3] for r in results])
 
-            query = 'insert into experiment(algorithm, dataset_id, error_level, error_strategy, extended_strategy, timeout, precision, recall, f1, exec_time) ' \
-                    'values (%s, (select id from dataset where name = %s), %s, %s, %s, %s, %s, %s, %s, %s) returning id;'
-            q = curs.mogrify(query, [algorithm, ds_name, error_level, error_strategy, extended_strategy, timeout, precision, recall, f1, exec_time])
-            # q = curs.mogrify(query, [algorithm, 'troy', error_level, error_strategy, extended_strategy, timeout, precision, recall, f1, exec_time])
-            # print(q)
+            query = 'insert into experiment(algorithm, dataset_id, error_level, only_aggregator, error_strategy, extended_strategy, ' \
+                    'delayed_bruteforce_strategy, timeout, precision, recall, f1, exec_time) ' \
+                    'values (%s, (select id from dataset where name = %s), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning id;'
+            q = curs.mogrify(query,
+                             [algorithm, ds_name, error_level, eval_only_aggor, error_strategy, extended_strategy, use_delayed_bruteforce_strategy, timeout, precision,
+                              recall, f1, exec_time])
+            # q = curs.mogrify(query, [algorithm, 'troy', error_level, error_strategy, extended_strategy, use_delayed_bruteforce_strategy, timeout, precision, recall, f1, exec_time])
             curs.execute(q)
             experiment_id = curs.fetchone()[0]
 
@@ -144,14 +151,19 @@ def store_experiment_result(exp_results, ds_name):
             inserted_list = []
             for result in exp_results:
                 exec_time = sum(result['exec_time'].values())
-                inserted_list.append([experiment_id, result['file_name'], result['table_id'],
-                                      len(result['correct']), len(result['incorrect']), len(result['false_positive']), exec_time,
-                                      json.dumps(result['correct']),
-                                      json.dumps(result['incorrect']),
-                                      json.dumps(result['false_positive'])])
+                if not eval_only_aggor:
+                    inserted_list.append([experiment_id, result['file_name'], result['table_id'],
+                                          len(result['correct']), len(result['incorrect']), len(result['false_positive']), exec_time,
+                                          json.dumps(result['correct']),
+                                          json.dumps(result['incorrect']),
+                                          json.dumps(result['false_positive'])])
+                else:
+                    inserted_list.append([experiment_id, result['file_name'], result['table_id'],
+                                          len(result['tp_only_aggor']), len(result['fn_only_aggor']), len(result['fp_only_aggor']), exec_time,
+                                          json.dumps(result['tp_only_aggor']),
+                                          json.dumps(result['fn_only_aggor']),
+                                          json.dumps(result['fp_only_aggor'])])
             curs.executemany(query, inserted_list)
-    # conn.close()
-
 
 if __name__ == '__main__':
     luigi.run()

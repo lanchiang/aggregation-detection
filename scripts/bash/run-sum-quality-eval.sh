@@ -43,11 +43,10 @@ if [ "$delayBruteForceStrategy" != true ]; then
 #  delayBruteForceStrategy=true
 fi
 
-echo "$delayBruteForceStrategy"
+errorLevel="0 0.00001 0.00005 0.0001 0.0005 0.001 0.005 0.01"
+#errorLevel="0 0.00001"
 
-errorLevel="0 0.00001 0.00003 0.00005 0.0001 0.0003 0.0005 0.001 0.003 0.005 0.01 0.03 0.05"
-#errorLevel="0.003 0.005 0.01 0.03 0.05"
-#errorLevel="0.0001"
+timeout=600
 
 #for i in $(seq 0 0.005 1); do
 for i in $errorLevel; do
@@ -60,15 +59,47 @@ for i in $errorLevel; do
     --error-level "$i" \
     --use-extend-strategy $extendStrategy \
     --use-delayed-bruteforce $delayBruteForceStrategy \
+    --eval-only-aggor False \
     --log-level WARNING \
-    --error-strategy ratio
+    --error-strategy ratio \
+    --timeout $timeout
   elif [ "$algorithm" = 'Baseline' ]; then
     env PYTHONPATH=$pythonPath luigi --module evaluation QualityEvaluation \
     --local-scheduler \
     --algorithm $algorithm \
     --dataset-path $dataPath \
     --error-level "$i" \
-    --log-level WARNING
+    --eval-only-aggor False \
+    --log-level WARNING \
+    --timeout $timeout
+  else
+    :
+  fi
+done
+
+for i in $errorLevel; do
+#  echo "Used error level: $i"
+  if [ "$algorithm" = 'Aggrdet' ]; then
+    env PYTHONPATH=$pythonPath luigi --module evaluation QualityEvaluation \
+    --local-scheduler \
+    --algorithm $algorithm \
+    --dataset-path $dataPath \
+    --error-level "$i" \
+    --use-extend-strategy $extendStrategy \
+    --use-delayed-bruteforce $delayBruteForceStrategy \
+    --eval-only-aggor True \
+    --log-level WARNING \
+    --error-strategy ratio \
+    --timeout $timeout
+  elif [ "$algorithm" = 'Baseline' ]; then
+    env PYTHONPATH=$pythonPath luigi --module evaluation QualityEvaluation \
+    --local-scheduler \
+    --algorithm $algorithm \
+    --dataset-path $dataPath \
+    --error-level "$i" \
+    --eval-only-aggor True \
+    --log-level WARNING \
+    --timeout $timeout
   else
     :
   fi

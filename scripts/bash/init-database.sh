@@ -21,3 +21,4 @@ sh create-database.sh $port
 
 # load the fact tables with datasets
 sh fill-fact-tables.sh -d ../data/troy.jl.gz -n troy
+sh fill-fact-tables.sh -d ../data/euses.jl.gz -n euses
