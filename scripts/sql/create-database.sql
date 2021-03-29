@@ -108,6 +108,7 @@ CREATE TABLE experiment
     algorithm text NOT NULL,
     dataset_id integer NOT NULL,
     error_level decimal NOT NULL,
+    only_aggregator boolean NOT NULL,
     error_strategy text,
     extended_strategy boolean,
     delayed_bruteforce_strategy boolean,

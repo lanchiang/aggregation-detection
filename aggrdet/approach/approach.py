@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 import luigi
 
 from dataprep import NumberFormatNormalization
+from tree import AggregationRelationForest
 
 
 class Approach(ABC):
@@ -17,6 +18,10 @@ class Approach(ABC):
     def detect_column_wise_aggregations(self, file_dict):
         pass
 
+    @abstractmethod
+    def detect_proximity_aggregation_relations(self, forest: AggregationRelationForest, error_bound: float, error_strategy):
+        pass
+
 
 class AggregationDetection(luigi.Task, Approach):
     dataset_path = luigi.Parameter()
@@ -26,6 +31,8 @@ class AggregationDetection(luigi.Task, Approach):
     use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     timeout = luigi.FloatParameter(default=300)
     debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+
+    cpu_count = int(os.cpu_count() * 0.5)
 
     def requires(self):
         return NumberFormatNormalization(self.dataset_path, self.result_path, debug=self.debug)

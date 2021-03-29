@@ -282,9 +282,8 @@ def filter_conflict_bruteforce_results(raw_bruteforce_results, aggregations, axi
     return filtered_results
 
 
-def delayed_bruteforce(collected_results_by_line, file_arr, ranking_arr, error_level, axis):
+def delayed_bruteforce(collected_results_by_line, file_arr, error_level, axis):
     file_array = np.array(file_arr)
-    ranking_array = np.array(ranking_arr)
     number_indices = get_indices_number_cells(file_array)
     if axis == 0:
         # row-wise
@@ -306,14 +305,29 @@ def delayed_bruteforce(collected_results_by_line, file_arr, ranking_arr, error_l
                 if cell_index not in number_indices:
                     continue
                 numberized_value = Decimal(value)
-                aggregator = numberized_value
+                if numberized_value.is_nan():
+                    aggregator = Decimal(0.0)
+                else:
+                    aggregator = numberized_value
                 impossibles = impossible_ar_partials.get(cell_index[1], [])
                 if bool(impossibles):
-                    numbers_same_row = [(elem, Decimal(file_array[elem[0]][elem[1]])) for elem in number_indices
-                                        if elem[0] == cell_index[0] and elem != cell_index and elem[1] not in impossibles]
+                    numbers_same_row = []
+                    for elem in number_indices:
+                        if elem[0] == cell_index[0] and elem != cell_index and elem[1] not in impossibles:
+                            number_same_row = Decimal(file_array[elem[0]][elem[1]])
+                            number_same_row = number_same_row if not number_same_row.is_nan() else Decimal(0.0)
+                            numbers_same_row.append((elem, number_same_row))
+                    # numbers_same_row = [(elem, Decimal(file_array[elem[0]][elem[1]])) for elem in number_indices
+                    #                     if elem[0] == cell_index[0] and elem != cell_index and elem[1] not in impossibles]
                 else:
-                    numbers_same_row = [(elem, Decimal(file_array[elem[0]][elem[1]])) for elem in number_indices
-                                        if elem[0] == cell_index[0] and elem != cell_index]
+                    numbers_same_row = []
+                    for elem in number_indices:
+                        if elem[0] == cell_index[0] and elem != cell_index:
+                            number_same_row = Decimal(file_array[elem[0]][elem[1]])
+                            number_same_row = number_same_row if not number_same_row.is_nan() else Decimal(0.0)
+                            numbers_same_row.append((elem, number_same_row))
+                    # numbers_same_row = [(elem, Decimal(file_array[elem[0]][elem[1]])) for elem in number_indices
+                    #                     if elem[0] == cell_index[0] and elem != cell_index]
                 for i in range(1, len(numbers_same_row)):
                     raw_bruteforce_results = itertools.chain(*[is_aggregation((cell_index, aggregator), aggregatees, error_level)
                                                                                  for aggregatees in itertools.combinations(numbers_same_row, i + 1)])
@@ -339,14 +353,30 @@ def delayed_bruteforce(collected_results_by_line, file_arr, ranking_arr, error_l
                 if cell_index not in number_indices:
                     continue
                 numberized_value = Decimal(value)
-                aggregator = numberized_value
+                if numberized_value.is_nan():
+                    aggregator = Decimal(0.0)
+                else:
+                    aggregator = numberized_value
+                # aggregator = numberized_value
                 impossibles = impossible_ar_partials.get(cell_index[0], [])
                 if bool(impossibles):
-                    numbers_same_column = [(elem, Decimal(file_array[elem[0]][elem[1]])) for elem in number_indices
-                                            if elem[1] == cell_index[1] and elem != cell_index and elem[0] not in impossibles]
+                    numbers_same_column = []
+                    for elem in number_indices:
+                        if elem[1] == cell_index[1] and elem != cell_index and elem[0] not in impossibles:
+                            number_same_column = Decimal(file_array[elem[0]][elem[1]])
+                            number_same_column = number_same_column if not number_same_column.is_nan() else Decimal(0.0)
+                            numbers_same_column.append((elem, number_same_column))
+                    # numbers_same_column = [(elem, Decimal(file_array[elem[0]][elem[1]])) for elem in number_indices
+                    #                         if elem[1] == cell_index[1] and elem != cell_index and elem[0] not in impossibles]
                 else:
-                    numbers_same_column = [(elem, Decimal(file_array[elem[0]][elem[1]])) for elem in number_indices
-                                           if elem[1] == cell_index[1] and elem != cell_index]
+                    numbers_same_column = []
+                    for elem in number_indices:
+                        if elem[1] == cell_index[1] and elem != cell_index:
+                            number_same_column = Decimal(file_array[elem[0]][elem[1]])
+                            number_same_column = number_same_column if not number_same_column.is_nan() else Decimal(0.0)
+                            numbers_same_column.append((elem, number_same_column))
+                    # numbers_same_column = [(elem, Decimal(file_array[elem[0]][elem[1]])) for elem in number_indices
+                    #                        if elem[1] == cell_index[1] and elem != cell_index]
                 for i in range(1, len(numbers_same_column)):
                     raw_bruteforce_results = itertools.chain(*[is_aggregation((cell_index, aggregator), aggregatees, error_level)
                                                                                  for aggregatees in itertools.combinations(numbers_same_column, i + 1)])
