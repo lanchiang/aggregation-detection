@@ -44,6 +44,7 @@ if __name__ == '__main__':
     forest.add_relation(AggregationRelation(
         CellIndex(3, 1),
         (CellIndex(3, 2), CellIndex(3, 3)),
+        None,
         None
     ))
     print()

@@ -16,11 +16,14 @@ from luigi.mock import MockTarget
 from pebble import ProcessPool
 from tqdm import tqdm
 
+from approach.aggrdet._AverageDetection import AverageDetection
 from approach.aggrdet._SumDetection import SumDetection
+from approach.aggrdet.bruteforce import DelayedBruteforce
+from approach.aggrdet.resultsfusion import fuse_aggregation_results
 from bruteforce import delayed_bruteforce
 from dataprep import NumberFormatNormalization
 from elements import AggregationRelation, CellIndex, Direction, Cell
-from helpers import is_empty_cell, hard_empty_cell_values
+from helpers import is_empty_cell, hard_empty_cell_values, AggregationOperator
 from tree import AggregationRelationForest
 
 
@@ -41,6 +44,7 @@ class Aggrdet(luigi.Task):
     dataset_path = luigi.Parameter()
     result_path = luigi.Parameter('./debug/')
     error_level = luigi.FloatParameter(default=0)
+    target_aggregation_type = luigi.Parameter(default='All')
     error_strategy = luigi.Parameter(default='ratio')
     use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
@@ -55,22 +59,63 @@ class Aggrdet(luigi.Task):
             return MockTarget('aggrdet')
 
     def requires(self):
-        return {'sum_detection': SumDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
-                                              use_extend_strategy=self.use_extend_strategy,
-                                              use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout, debug=self.debug)}
+        if self.use_delayed_bruteforce:
+            return DelayedBruteforce(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+                                     target_aggregation_type=self.target_aggregation_type,
+                                     error_strategy=self.error_strategy, use_extend_strategy=self.use_extend_strategy, timeout=self.timeout, debug=self.debug)
+        else:
+            sum_detector = {'sum_detector': SumDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+                                                         use_extend_strategy=self.use_extend_strategy,
+                                                         use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout, debug=self.debug)}
+            average_detector = {'average_detector': AverageDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+                                                                     use_extend_strategy=self.use_extend_strategy,
+                                                                     use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout,
+                                                                     debug=self.debug)}
+            all_detectors = {**sum_detector, **average_detector}
+
+            required = {AggregationOperator.SUM.value: sum_detector,
+                        AggregationOperator.AVERAGE.value: average_detector,
+                        'All': all_detectors}.get(self.target_aggregation_type, None)
+
+            if required is None:
+                raise RuntimeError('Given target aggregation type parameter is illegal.')
+
+            return required
 
     def run(self):
-        with self.input()['sum_detection'].open('r') as file_reader:
-            sum_detection_results = [json.loads(line) for line in file_reader]
+        if self.use_delayed_bruteforce:
+            # Todo!!!
+            with self.input().open('r') as file_reader:
+                gathered_detection_results = [json.loads(line) for line in file_reader]
+        else:
+            gathered_detection_results = {}
+            for key, _ in self.input().items():
+                with self.input()[key].open('r') as file_reader:
+                    file_dicts = [json.loads(line) for line in file_reader]
+                    for file_dict in file_dicts:
+                        file_signature = (file_dict['file_name'], file_dict['table_id'])
+                        if file_signature not in gathered_detection_results:
+                            gathered_detection_results[file_signature] = file_dict
+                        else:
+                            gathered = gathered_detection_results[file_signature]['aggregation_detection_result']
+                            for number_format in gathered.keys():
+                                if number_format in gathered:
+                                    gathered[number_format].extend(file_dict['aggregation_detection_result'][number_format])
+                                else:
+                                    gathered[number_format] = file_dict['aggregation_detection_result'][number_format]
+
+            gathered_detection_results = list(gathered_detection_results.values())
+        fuse_aggregation_results(gathered_detection_results)
 
         result_dict = []
-        for result in tqdm(sum_detection_results, desc='Select number format'):
+        for result in tqdm(gathered_detection_results, desc='Select number format'):
             start_time = time.time()
             file_output_dict = copy(result)
             result_by_number_format = result['aggregation_detection_result']
             nf_cands = set(result_by_number_format.keys())
             nf_cands = sorted(list(nf_cands))
-            if result['exec_time']['SumDetection'] < 0:
+            if any([exec_time == math.nan for exec_time in result['exec_time'].values()]):
+                # if result['exec_time']['SumDetection'] < 0:
                 pass
             if not bool(nf_cands):
                 pass
@@ -87,7 +132,7 @@ class Aggrdet(luigi.Task):
                             aggregatees.append(ast.literal_eval(e))
                         aggregatees = [Cell(CellIndex(e[0], e[1]), None) for e in aggregatees]
                         aggregatees.sort()
-                        row_ar.add(AggregationRelation(aggregator, tuple(aggregatees), None))
+                        row_ar.add(AggregationRelation(aggregator, tuple(aggregatees), r[2], None))
                     det_aggrs = row_ar
                     results.append((number_format, det_aggrs))
                 results.sort(key=lambda x: len(x[1]), reverse=True)
@@ -96,9 +141,9 @@ class Aggrdet(luigi.Task):
                 det_aggrs = []
                 for det_aggr in results[0][1]:
                     if isinstance(det_aggr, AggregationRelation):
-                        aees = [[aee.cell_index.row_index, aee.cell_index.column_index] for aee in det_aggr.aggregatees]
-                        aor = [det_aggr.aggregator.cell_index.row_index, det_aggr.aggregator.cell_index.column_index]
-                        det_aggrs.append({'aggregator_index': aor, 'aggregatee_indices': aees})
+                        aees = [(aee.cell_index.row_index, aee.cell_index.column_index) for aee in det_aggr.aggregatees]
+                        aor = (det_aggr.aggregator.cell_index.row_index, det_aggr.aggregator.cell_index.column_index)
+                        det_aggrs.append({'aggregator_index': aor, 'aggregatee_indices': aees, 'operator': det_aggr.operator})
                 file_output_dict['detected_aggregations'] = det_aggrs
                 file_output_dict.pop('aggregation_detection_result', None)
                 try:
@@ -110,12 +155,7 @@ class Aggrdet(luigi.Task):
             end_time = time.time()
             exec_time = end_time - start_time
             file_output_dict['exec_time'][self.__class__.__name__] = exec_time
-            file_output_dict['parameters'] = {}
-            file_output_dict['parameters']['error_level'] = self.error_level
             file_output_dict['parameters']['error_strategy'] = self.error_strategy
-            file_output_dict['parameters']['use_extend_strategy'] = self.use_extend_strategy
-            file_output_dict['parameters']['use_delayed_bruteforce_strategy'] = self.use_delayed_bruteforce
-            file_output_dict['parameters']['timeout'] = self.timeout
             file_output_dict['parameters']['algorithm'] = self.__class__.__name__
 
             result_dict.append(file_output_dict)
@@ -123,7 +163,6 @@ class Aggrdet(luigi.Task):
         with self.output().open('w') as file_writer:
             for file_output_dict in result_dict:
                 file_writer.write(json.dumps(file_output_dict) + '\n')
-        pass
 
 
 def eliminate_negative(table_value: np.ndarray):

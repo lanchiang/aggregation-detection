@@ -29,6 +29,9 @@ def str2decimal(value, default=0.0):
             value = Decimal(value)
         except InvalidOperation as _:
             use_default = True
+        else:
+            if value.is_nan():
+                use_default = True
     else:
         use_default = True
 
@@ -40,7 +43,7 @@ def str2decimal(value, default=0.0):
                 value = Decimal(default)  # if a value cannot be converted to number, set it to zero.
             except InvalidOperation as _:
                 logging.getLogger('String to decimal').error('Given default value cannot be converted to a decimal.')
-                exit(1)
+                raise RuntimeError('Given default value cannot be converted to a decimal.')
     return value
 
 

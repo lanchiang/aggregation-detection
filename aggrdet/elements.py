@@ -73,13 +73,15 @@ class Direction(Enum):
 
 class AggregationRelation:
 
-    def __init__(self, aggregator: Cell, aggregatees: Tuple[Cell], direction: Direction):
+    def __init__(self, aggregator: Cell, aggregatees: Tuple[Cell], operator: str, direction: Direction):
         self.aggregator = aggregator
         self.aggregatees = aggregatees
+        self.operator = operator
         self.direction = direction
 
     def __str__(self) -> str:
-        return 'Aggregator: %s; Aggregatees: %s; Direction: %s' % (self.aggregator, str(self.aggregatees), str(self.direction.value))
+        return 'Aggregator: %s; Aggregatees: %s; Operator: %s; Direction: %s' \
+               % (self.aggregator, str(self.aggregatees), str(self.operator), str(self.direction.value))
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -93,5 +95,18 @@ class AggregationRelation:
         return hash(self.__key())
 
     def __key(self):
-        return self.aggregator, self.aggregatees, self.direction
+        return self.aggregator, self.aggregatees, self.operator, self.direction
 
+
+if __name__ == '__main__':
+    # a = Cell(CellIndex(4, 1), 15341)
+    # b = Cell(CellIndex(4, 1), 15341)
+    # a = Direction.FORWARD
+    # b = Direction.FORWARD
+    # a = (Cell(CellIndex(4, 2), 39945), Cell(CellIndex(4, 3), 24604))
+    # b = (Cell(CellIndex(4, 2), 39945), Cell(CellIndex(4, 3), 24604))
+    a = AggregationRelation(Cell(CellIndex(4, 1), 15341), (Cell(CellIndex(4, 2), 39945), Cell(CellIndex(4, 3), 24604)), 'Sum', Direction.FORWARD)
+    b = AggregationRelation(Cell(CellIndex(4, 1), 15341), (Cell(CellIndex(4, 2), 39945), Cell(CellIndex(4, 3), 24604)), 'Sum', Direction.FORWARD)
+    print(a)
+    print(b)
+    print(a == b)

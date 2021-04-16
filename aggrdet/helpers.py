@@ -18,6 +18,15 @@ class AggregationOperator(Enum):
     AVERAGE = 'Average'
     PERCENTAGE = 'Percentage'
 
+    @staticmethod
+    def all():
+        return list(map(lambda c: c.value, AggregationOperator))
+
+
+class AggregationDirection(Enum):
+    ROW_WISE = 'RowWise'
+    COLUMN_WISE = 'ColumnWise'
+
 
 def is_empty_cell(value: str) -> bool:
     is_empty_cell_vector = [ecv == value.lower() for ecv in empty_cell_values]
@@ -70,6 +79,8 @@ def is_aggregation_equal(groundtruth, prediction, file_values) -> bool:
     :return: true if two aggregations are equal, false otherwise
     """
     if groundtruth[0] != prediction[0]:
+        return False
+    if groundtruth[2] != prediction[2]:
         return False
 
     groundtruth_aggregatee_indices = sorted(groundtruth[1])

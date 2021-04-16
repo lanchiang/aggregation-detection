@@ -23,25 +23,39 @@ if [ "$initDB" = true ]; then
 fi
 
 ## run aggrdet
-sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/troy.jl.gz
+sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/troy.jl.gz -o Sum
+sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/troy.jl.gz -o Average
+sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/troy.jl.gz -o All
+
+sh ./run-sum-quality-eval.sh -l -a Aggrdet -d ../../data/troy.jl.gz -o Sum
+sh ./run-sum-quality-eval.sh -l -a Aggrdet -d ../../data/troy.jl.gz -o Average
+sh ./run-sum-quality-eval.sh -l -a Aggrdet -d ../../data/troy.jl.gz -o All
+
 ## run aggrdet with extended strategy
-sh ./run-sum-quality-eval.sh -x -a Aggrdet -d ../../data/troy.jl.gz
+#sh ./run-sum-quality-eval.sh -x -a Aggrdet -d ../../data/troy.jl.gz
 ## run aggrdet with delayed bruteforce strategy
-sh ./run-sum-quality-eval.sh -l -a Aggrdet -d ../../data/troy.jl.gz
+#sh ./run-sum-quality-eval.sh -l -a Aggrdet -d ../../data/troy.jl.gz
 ## run aggrdet with extended strategy and delayed bruteforce strategy
-sh ./run-sum-quality-eval.sh -x -l -a Aggrdet -d ../../data/troy.jl.gz
+#sh ./run-sum-quality-eval.sh -x -l -a Aggrdet -d ../../data/troy.jl.gz
 
 ## run baseline
-sh ./run-sum-quality-eval.sh -a Baseline -d ../../data/troy.jl.gz
+#sh ./run-sum-quality-eval.sh -a Baseline -d ../../data/troy.jl.gz
 
 # run aggrdet
-sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/euses.jl.gz
+sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/euses.jl.gz -o Sum
+sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/euses.jl.gz -o Average
+sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/euses.jl.gz -o All
+
+sh ./run-sum-quality-eval.sh -l -a Aggrdet -d ../../data/euses.jl.gz -o Sum
+sh ./run-sum-quality-eval.sh -l -a Aggrdet -d ../../data/euses.jl.gz -o Average
+sh ./run-sum-quality-eval.sh -l -a Aggrdet -d ../../data/euses.jl.gz -o All
+
 # run aggrdet with extended strategy
-sh ./run-sum-quality-eval.sh -x -a Aggrdet -d ../../data/euses.jl.gz
+#sh ./run-sum-quality-eval.sh -x -a Aggrdet -d ../../data/euses.jl.gz
 # run aggrdet with delayed bruteforce strategy
-sh ./run-sum-quality-eval.sh -l -a Aggrdet -d ../../data/euses.jl.gz
+#sh ./run-sum-quality-eval.sh -l -a Aggrdet -d ../../data/euses.jl.gz
 # run aggrdet with extended strategy and delayed bruteforce strategy
-sh ./run-sum-quality-eval.sh -x -l -a Aggrdet -d ../../data/euses.jl.gz
+#sh ./run-sum-quality-eval.sh -x -l -a Aggrdet -d ../../data/euses.jl.gz
 
 # run baseline
-sh ./run-sum-quality-eval.sh -a Baseline -d ../../data/euses.jl.gz
+#sh ./run-sum-quality-eval.sh -a Baseline -d ../../data/euses.jl.gz

@@ -109,6 +109,7 @@ CREATE TABLE experiment
     dataset_id integer NOT NULL,
     error_level decimal NOT NULL,
     only_aggregator boolean NOT NULL,
+    target_aggregation_type_id integer NOT NULL,
     error_strategy text,
     extended_strategy boolean,
     delayed_bruteforce_strategy boolean,
@@ -116,9 +117,13 @@ CREATE TABLE experiment
     precision real NOT NULL,
     recall real NOT NULL,
     f1 real NOT NULL,
+    partial_precision json NOT NULL,
+    partial_recall json NOT NULL,
+    partial_f1 json NOT NULL,
     exec_time real NOT NULL, -- runtime for the whole dataset, might not be useful, nevertheless record it.
     time_stamp timestamp NOT NULL DEFAULT now(),
-    CONSTRAINT fk_fileset_id FOREIGN KEY(dataset_id) REFERENCES dataset(id)
+    CONSTRAINT fk_fileset_id FOREIGN KEY(dataset_id) REFERENCES dataset(id),
+    CONSTRAINT fk_aggregation_type_id FOREIGN KEY(target_aggregation_type_id) REFERENCES aggregation_type(id)
 )
 
 TABLESPACE pg_default;

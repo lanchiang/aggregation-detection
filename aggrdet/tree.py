@@ -20,9 +20,6 @@ class AggregationRelationForest:
         self.pool = []
 
     def consume_relation(self, ar: AggregationRelation) -> None:
-        # if not self.is_valid_relation(ar):
-        #     raise Exception('The given aggregation relation is not compatible with this forest.')
-
         trees_aggor = self.forest[ar.aggregator.cell_index]
         last_tree = trees_aggor[len(trees_aggor) - 1]
         if last_tree.depth() > 0:
@@ -40,10 +37,6 @@ class AggregationRelationForest:
                                       parent=ar.aggregator.cell_index.__str__())
             self.pool.append(copy(last_tree))
 
-        # for aee in ar.aggregatees:
-        #     self.forest.pop(aee.cell_index, None)
-        pass
-
     def remove_consumed_aggregators(self, ar_cands: List[AggregationRelation]) -> None:
         for ar in ar_cands:
             for aee in ar.aggregatees:
@@ -52,6 +45,22 @@ class AggregationRelationForest:
     def remove_consumed_aggregator(self, ar_cand: AggregationRelation) -> None:
         for aee in ar_cand.aggregatees:
             self.forest.pop(aee.cell_index, None)
+
+    def remove_consumed_signature(self, signature, axis) -> None:
+        # signature is a 2er-tuple, (Aggregator, Aggregatees)
+        aggregatee_signatures = signature[1]
+        if axis == 0:
+            # row wise
+            for aggee_signature in aggregatee_signatures:
+                self.forest.pop(CellIndex(list(self.forest.keys())[0].row_index, aggee_signature), None)
+            pass
+        if axis == 1:
+            # column wise
+            for aggee_signature in aggregatee_signatures:
+                cell_index = CellIndex(aggee_signature, list(self.forest.keys())[0].column_index)
+                self.forest.pop(cell_index, None)
+            pass
+        pass
 
     def is_valid_relation(self, ar: AggregationRelation) -> bool:
         """
@@ -71,19 +80,11 @@ class AggregationRelationForest:
         roots.sort()
         return roots
 
-    def results_to_str(self, operator):
+    def results_to_str(self, operator, direction):
         results = []
         for result in self.pool:
             if isinstance(result, Tree):
                 result_list = list(result.to_dict(with_data=False).items())
                 for r in result_list:
-                    results.append((r[0], r[1]['children'], operator))
-                # results.append(result_list)
+                    results.append((r[0], r[1]['children'], operator, direction))
         return results
-
-    def results_to_list(self, operator):
-        results = []
-        for result in self.pool:
-            if isinstance(result, Tree):
-                json_dict = result.to_dict(with_data=False)
-                pass

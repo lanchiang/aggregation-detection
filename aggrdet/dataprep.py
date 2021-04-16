@@ -24,8 +24,11 @@ class LoadDataset(luigi.Task):
     """
 
     dataset_path = luigi.Parameter()
+    error_level = luigi.FloatParameter(default=0)
+    use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+    use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+    timeout = luigi.FloatParameter(default=300)
     debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
-
     result_path = luigi.Parameter('/debug/')
 
     def output(self):
@@ -43,6 +46,10 @@ class LoadDataset(luigi.Task):
                                    'num_cols': jfd['num_cols'],
                                    'table_array': jfd['table_array'],
                                    'aggregation_annotations': jfd['aggregation_annotations'],
+                                   'parameters': {'error_level': self.error_level,
+                                                  'use_extend_strategy': self.use_extend_strategy,
+                                                  'use_delayed_bruteforce_strategy': self.use_delayed_bruteforce,
+                                                  'timeout': self.timeout},
                                    'number_format': jfd['number_format'],
                                    'exec_time': {}}) for jfd in json_file_dicts]
 
@@ -58,7 +65,10 @@ class DataPreparation(luigi.Task):
 
     dataset_path = luigi.Parameter()
     result_path = luigi.Parameter('/debug/')
-
+    error_level = luigi.FloatParameter(default=0)
+    use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+    use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+    timeout = luigi.FloatParameter(default=300)
     debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
 
     def output(self):
@@ -68,21 +78,24 @@ class DataPreparation(luigi.Task):
             return MockTarget('data-preparation')
 
     def requires(self):
-        return LoadDataset(dataset_path=self.dataset_path, debug=self.debug, result_path=self.result_path)
+        return LoadDataset(error_level=self.error_level, use_extend_strategy=self.use_extend_strategy,
+                           use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout,
+                           dataset_path=self.dataset_path, debug=self.debug, result_path=self.result_path)
 
     def run(self):
         with self.input().open('r') as file_reader:
             file_dicts = np.array([json.loads(line) for line in file_reader])
 
         for file_dict in tqdm(file_dicts, desc='Data preparation'):
-            if file_dict['file_name'] != '2000_places_School.xls':
-                continue
-            normalized_file_content = np.array(normalize_file(np.copy(file_dict['table_array']), file_dict['number_format']))
+            normalized_file_arr, _ = normalize_file(np.copy(file_dict['table_array']), file_dict['number_format'])
+            normalized_file_content = np.array(normalized_file_arr)
             cleaned_aggregation_annotations = []
             for annotation in file_dict['aggregation_annotations']:
                 aggor_index = tuple(annotation['aggregator_index'])
-                if aggor_index != (77, 8):
-                    continue
+                # if aggor_index != (77, 8):
+                #     continue
+
+                # Todo: has problem: what if the number is negative?
                 aggor_value = re.sub('[^0-9,.\-+\s]', '', normalized_file_content[aggor_index])  # remove all characters that cannot appear in a numeric value
                 aggee_indices = [tuple(aggee_index) for aggee_index in annotation['aggregatee_indices']]
                 _aggee_values = [re.sub('[^0-9,.\-+\s]', '', normalized_file_content[aggee_index]) for aggee_index in aggee_indices]
@@ -160,7 +173,12 @@ class NumberFormatNormalization(luigi.Task):
 
     dataset_path = luigi.Parameter()
     result_path = luigi.Parameter('/debug')
+    error_level = luigi.FloatParameter(default=0)
+    use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+    use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
+    timeout = luigi.FloatParameter(default=300)
     sample_ratio = luigi.FloatParameter(default=0.2)
+
     debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
 
     def output(self):
@@ -170,7 +188,9 @@ class NumberFormatNormalization(luigi.Task):
             return MockTarget(fn='number-format-normalization')
 
     def requires(self):
-        return DataPreparation(self.dataset_path, self.result_path, debug=self.debug)
+        return DataPreparation(self.dataset_path, self.result_path,
+                               self.error_level, self.use_extend_strategy, self.use_delayed_bruteforce, self.timeout,
+                               debug=self.debug)
 
     def run(self):
         with self.input().open('r') as input_file:
@@ -180,9 +200,11 @@ class NumberFormatNormalization(luigi.Task):
                 start_time = time.time()
                 number_format = detect_number_format(np.array(file_dict['table_array']), self.sample_ratio)
                 transformed_values_by_number_format = {}
+                numeric_line_indices = {}
                 for nf in number_format:
-                    transformed_values_by_number_format[nf] = normalize_file(file_dict['table_array'], nf)
+                    transformed_values_by_number_format[nf], numeric_line_indices[nf] = normalize_file(file_dict['table_array'], nf)
                 file_dict['valid_number_formats'] = transformed_values_by_number_format
+                file_dict['numeric_line_indices'] = numeric_line_indices
 
                 end_time = time.time()
                 exec_time = end_time - start_time

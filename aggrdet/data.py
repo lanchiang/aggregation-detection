@@ -21,14 +21,21 @@ def normalize_file(file: np.ndarray, number_format: str):
 
     :param file: two dimensional file
     :param number_format: format of the numbers used for the given file.
-    :return: a two-dimensional array transformed from the given file, where the numbers are formatted with the given number format
+    :return: a two-dimensional array transformed from the given file, where the numbers are formatted with the given number format,
+    and a 2er-tuple that indicates the numeric line indices, first element for row indices, second element for column indices.
+    Todo: Right now a line is numeric as long as it contains at least one numeric cell.
     """
     trans_file = np.copy(file)
+    numeric_line_indices = ([], [])
     for index, value in np.ndenumerate(trans_file):
         processed_value = parse_number_string(value)
         matches = re.match(NumberFormatPattern.get(number_format), processed_value.strip())
         trans_file[index] = normalize_number(matches[0], number_format) if matches is not None else processed_value
-    return trans_file.tolist()
+        if matches is not None:
+            numeric_line_indices[0].append(index[0])
+            numeric_line_indices[1].append(index[1])
+    numeric_line_indices = (sorted(list(set(numeric_line_indices[0]))), list(set(numeric_line_indices[1])))
+    return trans_file.tolist(), numeric_line_indices
 
 
 def normalize_number(value: str, number_format: str) -> str:

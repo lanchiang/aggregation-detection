@@ -1,6 +1,7 @@
 # Created by lan at 2021/2/22
 import json
 from logging import log
+from pprint import pprint
 
 import luigi
 import numpy as np
@@ -9,11 +10,10 @@ import psycopg2.extensions
 from tqdm import tqdm
 
 from dataprep import DataPreparation
-from helpers import load_database_config
+from helpers import load_database_config, AggregationOperator
 
 
 class UploadDatasetDB(luigi.Task):
-
     dataset_path = luigi.Parameter()
     dataset_name = luigi.Parameter()
     result_path = luigi.Parameter(default='/debug/')
@@ -92,7 +92,7 @@ def upload_dataset_db(ds_name, json_file_dicts):
     # conn.close()
 
 
-def store_experiment_result(exp_results, ds_name, eval_only_aggor):
+def store_experiment_result(exp_results, ds_name, eval_only_aggor, target_aggregation_type):
     """
     Store experiment results in database.
 
@@ -108,9 +108,7 @@ def store_experiment_result(exp_results, ds_name, eval_only_aggor):
                 raise RuntimeError('Postgresql cursor initialization failed.')
 
             if len(exp_results) == 0:
-                # log(level=Warning, msg='No results returned.')
                 print('No results returned.')
-                # exit(1)
                 return
 
             algorithm = exp_results[0]['parameters']['algorithm']
@@ -121,28 +119,86 @@ def store_experiment_result(exp_results, ds_name, eval_only_aggor):
             timeout = exp_results[0]['parameters']['timeout']
 
             if not eval_only_aggor:
-                results = [(len(result['correct']), len(result['incorrect']), len(result['false_positive']),
+                results = [(sum([len(elem) for elem in result['correct'].values()]),
+                            sum([len(elem) for elem in result['incorrect'].values()]),
+                            sum([len(elem) for elem in result['false_positive'].values()]),
                             sum([et for et in result['exec_time'].values()])) for result in exp_results]
+                # results = [(len(result['correct']), len(result['incorrect']), len(result['false_positive']),
+                #             sum([et for et in result['exec_time'].values()])) for result in exp_results]
+                true_positives_partial = {}
+                false_negatives_partial = {}
+                false_positives_partial = {}
+                for result in exp_results:
+                    for key, value in result['correct'].items():
+                        if key not in true_positives_partial:
+                            true_positives_partial[key] = []
+                        true_positives_partial[key].extend(value)
+                    for key, value in result['incorrect'].items():
+                        if key not in false_negatives_partial:
+                            false_negatives_partial[key] = []
+                        false_negatives_partial[key].extend(value)
+                    for key, value in result['false_positive'].items():
+                        if key not in false_positives_partial:
+                            false_positives_partial[key] = []
+                        false_positives_partial[key].extend(value)
             else:
-                results = [(len(result['tp_only_aggor']), len(result['fn_only_aggor']), len(result['fp_only_aggor']),
+                results = [(sum([len(elem) for elem in result['tp_only_aggor'].values()]),
+                            sum([len(elem) for elem in result['fn_only_aggor'].values()]),
+                            sum([len(elem) for elem in result['fp_only_aggor'].values()]),
                             sum([et for et in result['exec_time'].values()])) for result in exp_results]
+                # results = [(len(result['tp_only_aggor']), len(result['fn_only_aggor']), len(result['fp_only_aggor']),
+                #             sum([et for et in result['exec_time'].values()])) for result in exp_results]
+                true_positives_partial = {}
+                false_negatives_partial = {}
+                false_positives_partial = {}
+                for result in exp_results:
+                    for key, value in result['tp_only_aggor'].items():
+                        if key not in true_positives_partial:
+                            true_positives_partial[key] = []
+                        true_positives_partial[key].extend(value)
+                    for key, value in result['fn_only_aggor'].items():
+                        if key not in false_negatives_partial:
+                            false_negatives_partial[key] = []
+                        false_negatives_partial[key].extend(value)
+                    for key, value in result['fp_only_aggor'].items():
+                        if key not in false_positives_partial:
+                            false_positives_partial[key] = []
+                        false_positives_partial[key].extend(value)
 
             true_positives = sum([r[0] for r in results])
             false_negatives = sum([r[1] for r in results])
             false_positives = sum([r[2] for r in results])
-            precision = true_positives / (true_positives + false_positives)
-            recall = true_positives / (true_positives + false_negatives)
+            precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) != 0 else 1.0
+            recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) != 0 else 1.0
             f1 = 2 * precision * recall / (precision + recall)
+
+            all_keys = true_positives_partial.keys()
+
+            precision_partial = {k: len(true_positives_partial[k]) / (len(true_positives_partial[k]) + len(false_positives_partial[k])) if (len(
+                true_positives_partial[k]) + len(false_positives_partial[k])) != 0 else 1 for k in
+                                 all_keys}
+            recall_partial = {k: len(true_positives_partial[k]) / (len(true_positives_partial[k]) + len(false_negatives_partial[k])) if (len(
+                true_positives_partial[k]) + len(false_negatives_partial[k])) != 0 else 1 for k in
+                              all_keys}
+            f1_partial = {k: 2 * precision_partial[k] * recall_partial[k] / (precision_partial[k] + recall_partial[k]) for k in
+                          all_keys}
+            precision_partial = json.dumps(precision_partial)
+            recall_partial = json.dumps(recall_partial)
+            f1_partial = json.dumps(f1_partial)
 
             exec_time = sum([r[3] for r in results])
 
-            query = 'insert into experiment(algorithm, dataset_id, error_level, only_aggregator, error_strategy, extended_strategy, ' \
-                    'delayed_bruteforce_strategy, timeout, precision, recall, f1, exec_time) ' \
-                    'values (%s, (select id from dataset where name = %s), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning id;'
+            query = 'insert into experiment(algorithm, dataset_id, error_level, only_aggregator, target_aggregation_type_id, error_strategy, extended_strategy, ' \
+                    'delayed_bruteforce_strategy, timeout, precision, recall, f1, partial_precision, partial_recall, partial_f1, exec_time) ' \
+                    'values (%s, (select id from dataset where name = %s), %s, %s, (select id from aggregation_type where name = %s), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning id;'
             q = curs.mogrify(query,
-                             [algorithm, ds_name, error_level, eval_only_aggor, error_strategy, extended_strategy, use_delayed_bruteforce_strategy, timeout, precision,
-                              recall, f1, exec_time])
-            # q = curs.mogrify(query, [algorithm, 'troy', error_level, error_strategy, extended_strategy, use_delayed_bruteforce_strategy, timeout, precision, recall, f1, exec_time])
+                             [algorithm, ds_name, error_level, eval_only_aggor, target_aggregation_type, error_strategy, extended_strategy,
+                              use_delayed_bruteforce_strategy, timeout, precision,
+                              recall, f1, precision_partial, recall_partial, f1_partial, exec_time])
+            # q = curs.mogrify(query, [algorithm, 'troy', error_level, eval_only_aggor, error_strategy, extended_strategy, use_delayed_bruteforce_strategy,
+            #                          timeout, precision, recall, f1, precision_partial, recall_partial, f1_partial, exec_time])
+            # q = curs.mogrify(query, [algorithm, 'euses', error_level, eval_only_aggor, error_strategy, extended_strategy, use_delayed_bruteforce_strategy,
+            #                          timeout, precision, recall, f1, precision_partial, recall_partial, f1_partial, exec_time])
             curs.execute(q)
             experiment_id = curs.fetchone()[0]
 
@@ -152,18 +208,57 @@ def store_experiment_result(exp_results, ds_name, eval_only_aggor):
             for result in exp_results:
                 exec_time = sum(result['exec_time'].values())
                 if not eval_only_aggor:
+                    num_correct = {
+                        AggregationOperator.SUM.value: sum([len(v) for k, v in result['correct'].items() if k == AggregationOperator.SUM.value]),
+                        AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['correct'].items() if k == AggregationOperator.AVERAGE.value]),
+                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['correct'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        'All': sum([len(v) for k, v in result['correct'].items()]),
+                    }.get(target_aggregation_type, None)
+                    num_incorrect = {
+                        AggregationOperator.SUM.value: sum([len(v) for k, v in result['incorrect'].items() if k == AggregationOperator.SUM.value]),
+                        AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['incorrect'].items() if k == AggregationOperator.AVERAGE.value]),
+                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['incorrect'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        'All': sum([len(v) for k, v in result['incorrect'].items()]),
+                    }.get(target_aggregation_type, None)
+                    num_false_positives = {
+                        AggregationOperator.SUM.value: sum([len(v) for k, v in result['false_positive'].items() if k == AggregationOperator.SUM.value]),
+                        AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['false_positive'].items() if k == AggregationOperator.AVERAGE.value]),
+                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['false_positive'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        'All': sum([len(v) for k, v in result['false_positive'].items()]),
+                    }.get(target_aggregation_type, None)
                     inserted_list.append([experiment_id, result['file_name'], result['table_id'],
-                                          len(result['correct']), len(result['incorrect']), len(result['false_positive']), exec_time,
+                                          num_correct, num_incorrect, num_false_positives,
+                                          exec_time,
                                           json.dumps(result['correct']),
                                           json.dumps(result['incorrect']),
                                           json.dumps(result['false_positive'])])
                 else:
+                    num_tp_only_aggor = {
+                        AggregationOperator.SUM.value: sum([len(v) for k, v in result['tp_only_aggor'].items() if k == AggregationOperator.SUM.value]),
+                        AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['tp_only_aggor'].items() if k == AggregationOperator.AVERAGE.value]),
+                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['tp_only_aggor'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        'All': sum([len(v) for k, v in result['tp_only_aggor'].items()]),
+                    }.get(target_aggregation_type, None)
+                    num_fn_only_aggor = {
+                        AggregationOperator.SUM.value: sum([len(v) for k, v in result['fn_only_aggor'].items() if k == AggregationOperator.SUM.value]),
+                        AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['fn_only_aggor'].items() if k == AggregationOperator.AVERAGE.value]),
+                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['fn_only_aggor'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        'All': sum([len(v) for k, v in result['fn_only_aggor'].items()]),
+                    }.get(target_aggregation_type, None)
+                    num_fp_only_aggor = {
+                        AggregationOperator.SUM.value: sum([len(v) for k, v in result['fp_only_aggor'].items() if k == AggregationOperator.SUM.value]),
+                        AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['fp_only_aggor'].items() if k == AggregationOperator.AVERAGE.value]),
+                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['fp_only_aggor'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        'All': sum([len(v) for k, v in result['fp_only_aggor'].items()]),
+                    }.get(target_aggregation_type, None)
                     inserted_list.append([experiment_id, result['file_name'], result['table_id'],
-                                          len(result['tp_only_aggor']), len(result['fn_only_aggor']), len(result['fp_only_aggor']), exec_time,
+                                          num_tp_only_aggor, num_fn_only_aggor, num_fp_only_aggor,
+                                          exec_time,
                                           json.dumps(result['tp_only_aggor']),
                                           json.dumps(result['fn_only_aggor']),
                                           json.dumps(result['fp_only_aggor'])])
             curs.executemany(query, inserted_list)
+
 
 if __name__ == '__main__':
     luigi.run()
