@@ -69,6 +69,7 @@ class Direction(Enum):
     # Backward means down for a column line, or right for a row line
     BACKWARD = 2
     UNKNOWN = 3
+    DIRECTIONLESS = 4
 
 
 class AggregationRelation:
@@ -99,14 +100,6 @@ class AggregationRelation:
 
 
 if __name__ == '__main__':
-    # a = Cell(CellIndex(4, 1), 15341)
-    # b = Cell(CellIndex(4, 1), 15341)
-    # a = Direction.FORWARD
-    # b = Direction.FORWARD
-    # a = (Cell(CellIndex(4, 2), 39945), Cell(CellIndex(4, 3), 24604))
-    # b = (Cell(CellIndex(4, 2), 39945), Cell(CellIndex(4, 3), 24604))
-    a = AggregationRelation(Cell(CellIndex(4, 1), 15341), (Cell(CellIndex(4, 2), 39945), Cell(CellIndex(4, 3), 24604)), 'Sum', Direction.FORWARD)
-    b = AggregationRelation(Cell(CellIndex(4, 1), 15341), (Cell(CellIndex(4, 2), 39945), Cell(CellIndex(4, 3), 24604)), 'Sum', Direction.FORWARD)
-    print(a)
-    print(b)
-    print(a == b)
+    a = CellIndex(1, 2)
+    b = CellIndex(1, 3)
+    print(a < b)

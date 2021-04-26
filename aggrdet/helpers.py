@@ -17,6 +17,8 @@ class AggregationOperator(Enum):
     SUBTRACT = 'Subtract'
     AVERAGE = 'Average'
     PERCENTAGE = 'Percentage'
+    RELATIVE_CHANGE = 'RelativeChange'
+    DIVISION = 'Division'
 
     @staticmethod
     def all():

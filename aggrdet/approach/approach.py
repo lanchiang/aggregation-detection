@@ -1,12 +1,26 @@
 # Created by lan at 2021/3/14
+import decimal
+import itertools
+import json
+import math
 import os
+import time
 from abc import ABC, abstractmethod
 from copy import copy
+from decimal import Decimal
+from pprint import pprint
 
 import luigi
 from concurrent.futures import TimeoutError
 
+import numpy as np
+from pebble import ProcessPool
+from tqdm import tqdm
+
+from approach.aggrdet.detections import prune_conflict_ar_cands
 from dataprep import NumberFormatNormalization
+from elements import Cell, CellIndex, AggregationRelation
+from helpers import AggregationDirection, AggregationOperator, empty_cell_values
 from tree import AggregationRelationForest
 
 
@@ -34,20 +48,73 @@ class AggregationDetection(luigi.Task, Approach):
     timeout = luigi.FloatParameter(default=300)
     debug = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
 
-    NUMERIC_SATISFIED_RATIO = 0.5
     operator = ''
+    task_name = ''
+
+    NUMERIC_SATISFIED_RATIO = 0.5
+    DIGIT_PLACES = 5
 
     cpu_count = int(os.cpu_count() * 0.5)
+    # cpu_count = 1
 
     def requires(self):
         return NumberFormatNormalization(self.dataset_path, self.result_path,
                                          self.error_level, self.use_extend_strategy, self.use_delayed_bruteforce, self.timeout,
                                          debug=self.debug)
 
+    def run(self):
+        with self.input().open('r') as file_reader:
+            files_dict = [json.loads(line) for line in file_reader]
+
+        files_dict_map = self.setup_file_dicts(files_dict, self.task_name)
+
+        print('Conduct %s ...' % self.task_name)
+
+        with ProcessPool(max_workers=self.cpu_count, max_tasks=1) as pool:
+            returned_results = pool.map(self.detect_aggregations, files_dict, timeout=self.timeout).result()
+
+        self.process_results(returned_results, files_dict_map, self.task_name)
+
+        with self.output().open('w') as file_writer:
+            for file_output_dict in tqdm(files_dict_map.values(), desc='Serialize %s results' % self.task_name):
+                file_writer.write(json.dumps(file_output_dict) + '\n')
+
     def detect_aggregations(self, file_dict):
+        # print(file_dict['file_name'])
         row_wise_aggregations = self.detect_row_wise_aggregations(file_dict)
         column_wise_aggregations = self.detect_column_wise_aggregations(file_dict)
         return row_wise_aggregations, column_wise_aggregations
+
+    @abstractmethod
+    def detect_row_wise_aggregations(self, file_dict):
+        pass
+
+    @abstractmethod
+    def detect_column_wise_aggregations(self, file_dict):
+        pass
+
+    @abstractmethod
+    def mend_adjacent_aggregations(self, ar_cands_by_line, file_content, error_bound, axis):
+        pass
+
+    @abstractmethod
+    def is_equal(self, aggregator_value, aggregatees, based_aggregator_value, error_bound):
+        pass
+
+    @abstractmethod
+    def generate_ar_candidates_similar_headers(self):
+        pass
+
+    def setup_file_dicts(self, file_dicts, caller_name):
+        files_dict_map = {}
+        for file_dict in file_dicts:
+            file_dict['detected_number_format'] = ''
+            file_dict['detected_aggregations'] = []
+            file_dict['aggregation_detection_result'] = {file_dict['number_format']: []}
+            file_dict['exec_time'][caller_name] = math.nan
+
+            files_dict_map[(file_dict['file_name'], file_dict['table_id'])] = file_dict
+        return files_dict_map
 
     def process_results(self, results, files_dict_map, task_name):
         while True:
@@ -67,9 +134,43 @@ class AggregationDetection(luigi.Task, Approach):
                 merged_result = copy(row_wise_result)
                 for nf in merged_result['aggregation_detection_result'].keys():
                     merged_result['aggregation_detection_result'][nf].extend(column_wise_result['aggregation_detection_result'][nf])
-                merged_result['exec_time'][task_name] = \
-                    merged_result['exec_time']['RowWiseDetection'] + merged_result['exec_time']['ColumnWiseDetection']
+                merged_result['exec_time'][task_name] = merged_result['exec_time']['RowWiseDetection'] + column_wise_result['exec_time']['ColumnWiseDetection']
                 files_dict_map[(file_name, sheet_name)] = merged_result
+
+    def adjust_error_bound(self, base_number, error_bound):
+        if error_bound == -1:
+            # use a dynamic error bound
+            try:
+                aggregator_order_of_magnitude = int(math.log10(abs(base_number)))
+            except ValueError:
+                aggregator_order_of_magnitude = 0
+            if aggregator_order_of_magnitude >= 1:
+                adjusted_error_bound = 10 ** (-aggregator_order_of_magnitude)
+            else:
+                adjusted_error_bound = 10 ** (aggregator_order_of_magnitude)
+        else:
+            adjusted_error_bound = error_bound
+        return adjusted_error_bound
+
+    def to_number(self, value, operator):
+        number = None
+        if operator == AggregationOperator.SUM.value:
+            if value in empty_cell_values:
+                number = Decimal(0)
+        elif operator == AggregationOperator.AVERAGE.value:
+            pass
+        elif operator == AggregationOperator.DIVISION.value:
+            pass
+        elif operator == AggregationOperator.RELATIVE_CHANGE.value:
+            pass
+        else:
+            raise NotImplementedError
+
+        try:
+            number = Decimal(value)
+        except decimal.InvalidOperation:
+            pass
+        return number
 
 
 class BruteForce(Approach):

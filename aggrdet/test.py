@@ -1,45 +1,12 @@
 # Created by lan at 2021/3/14
+from dataclasses import dataclass
 
-class First(object):
-    def __init__(self):
-        super(First, self).__init__()
-        print("first")
 
-class Second(object):
-    def __init__(self):
-        super(Second, self).__init__()
-        print("second")
+@dataclass(order=True)
+class TestCellIndex:
+    row_index: int
+    column_index: int
 
-class Third(First, Second):
-    def __init__(self):
-        super(Third, self).__init__()
-        print("third")
 
-# Third()
-print(Third.__mro__)
-Third()
-
-class X:
+if __name__ == '__main__':
     pass
-
-
-class Y:
-    pass
-
-
-class Z:
-    pass
-
-
-class A(X, Y):
-    pass
-
-
-class B(Y, Z):
-    pass
-
-
-class M(B, A, Z):
-    pass
-
-print(M.mro())

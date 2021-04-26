@@ -56,15 +56,24 @@ def filter_conflict_ar_cands(ar_index, list_ar_cands_index):
             continue
         survivor_cr2.append(ar_cand_index)
 
-    # conflict rule 3: partial aggregatees overlap
-    survivor_cr3 = []
-    for ar_cand_index in survivor_cr2:
-        ar_aggee_set = set(ar_index[1])
-        ar_cand_aggee_set = set(ar_cand_index[1])
-        aggee_overlap = list(ar_aggee_set & ar_cand_aggee_set)
-        if (len(ar_aggee_set) == len(aggee_overlap) and len(ar_cand_aggee_set) == len(aggee_overlap)) or len(aggee_overlap) == 0:
-            survivor_cr3.append(ar_cand_index)
-    return survivor_cr3
+    # # conflict rule 3: partial aggregatees overlap
+    # survivor_cr3 = []
+    # for ar_cand_index in survivor_cr2:
+    #     ar_aggee_set = set(ar_index[1])
+    #     ar_cand_aggee_set = set(ar_cand_index[1])
+    #     aggee_overlap = list(ar_aggee_set & ar_cand_aggee_set)
+    #     if (len(ar_aggee_set) == len(aggee_overlap) and len(ar_cand_aggee_set) == len(aggee_overlap)) or len(aggee_overlap) == 0:
+    #         survivor_cr3.append(ar_cand_index)
+    survivor_cr3 = survivor_cr2
+
+    # conflict rule 4: aggregator-aggregatee circle
+    survivor_cr4 = []
+    for ar_cand_index in survivor_cr3:
+        if ar_index[0] in ar_cand_index[1] and ar_cand_index[0] in ar_index[1]:
+            continue
+        survivor_cr4.append(ar_cand_index)
+
+    return survivor_cr4
 
 
 def remove_duplicates(collected_results_by_line):

@@ -1,30 +1,23 @@
-# Created by lan at 2021/3/29
-import decimal
+# Created by lan at 2021/4/21
 import itertools
 import time
-from abc import abstractmethod
-from copy import copy
-from decimal import Decimal
+from abc import ABC
+from copy import deepcopy
 
 import numpy as np
 
-from approach.aggrdet.detections import prune_conflict_ar_cands, remove_duplicates, remove_occasional
+from approach.aggrdet.detections import prune_conflict_ar_cands
 from approach.approach import AggregationDetection
-from bruteforce import delayed_bruteforce
 from elements import Cell, CellIndex, AggregationRelation
-from helpers import AggregationDirection, empty_cell_values, AggregationOperator
+from helpers import AggregationDirection
 from tree import AggregationRelationForest
 
 
-class MultiAggregateeAggrdet(AggregationDetection):
-
-    @abstractmethod
-    def mend_adjacent_aggregations(self, ar_cands_by_line, file_content, error_bound, axis):
-        pass
+class BottomUpAggregationDetection(AggregationDetection, ABC):
 
     def detect_row_wise_aggregations(self, file_dict):
         start_time = time.time()
-        _file_dict = copy(file_dict)
+        _file_dict = deepcopy(file_dict)
         _file_dict['aggregation_detection_result'] = {}
         for number_format in _file_dict['valid_number_formats']:
 
@@ -45,14 +38,15 @@ class MultiAggregateeAggrdet(AggregationDetection):
                 forest_by_row_index[index] = forest
             collected_results_by_row = {}
             while True:
-                ar_cands_by_row = [(self.detect_proximity_aggregation_relations(forest, self.error_level, 'ratio'), forest) for forest in
-                                   forests_by_rows]
-                # get all non empty ar_cands
-                ar_cands_by_row = list(filter(lambda x: bool(x[0]), ar_cands_by_row))
-                if not ar_cands_by_row:
-                    break
+                ar_cands_by_row = {index: (self.detect_proximity_aggregation_relations(forest, self.error_level, 'ratio'), forest) for index, forest in
+                                   forest_by_row_index.items()}
 
                 self.mend_adjacent_aggregations(ar_cands_by_row, table_value, self.error_level, axis=0)
+
+                # get all non empty ar_cands
+                ar_cands_by_row = list(filter(lambda x: bool(x[0]), ar_cands_by_row.values()))
+                if not ar_cands_by_row:
+                    break
 
                 forest_indexed_by_ar_cand = {}
                 for ar_cands, forest in ar_cands_by_row:
@@ -63,7 +57,8 @@ class MultiAggregateeAggrdet(AggregationDetection):
 
                 ar_cands_by_column_index = prune_conflict_ar_cands(ar_cands_by_row, axis=0)
 
-                ar_cands_by_column_index = {k: v for k, v in ar_cands_by_column_index.items() if len(v) / len(numeric_line_indices[0]) >= self.NUMERIC_SATISFIED_RATIO}
+                ar_cands_by_column_index = {k: v for k, v in ar_cands_by_column_index.items() if
+                                            len(v) / len(numeric_line_indices[0]) >= self.NUMERIC_SATISFIED_RATIO}
 
                 if not bool(ar_cands_by_column_index):
                     break
@@ -96,14 +91,7 @@ class MultiAggregateeAggrdet(AggregationDetection):
                             else:
                                 forest_by_row_index[i].consume_relation(extended_ar_cand)
 
-                # Todo: delete the nodes only in the trees that an aggregation affects.
-                # for _, ar_cands_w_forest in ar_cands_by_row_index.items():
-                #     [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in ar_cands_w_forest]
-                # if self.use_extend_strategy:
-                #     [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in extended_ar_cands_w_forest]
-
                 for signature in ar_cands_by_column_index.keys():
-                    # [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in ar_cands_w_forest]
                     [forest.remove_consumed_signature(signature, axis=0) for forest in forest_by_row_index.values()]
                 if self.use_extend_strategy:
                     [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in extended_ar_cands_w_forest]
@@ -112,12 +100,7 @@ class MultiAggregateeAggrdet(AggregationDetection):
                 results_dict = forest.results_to_str(self.operator, AggregationDirection.ROW_WISE.value)
                 collected_results_by_row[forest] = results_dict
 
-            if self.use_delayed_bruteforce:
-                delayed_bruteforce(collected_results_by_row, table_value, self.error_level, axis=0)
-                remove_duplicates(collected_results_by_row)
-                collected_results = remove_occasional(collected_results_by_row, axis=0)
-            else:
-                collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_row.items()]))
+            collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_row.items()]))
 
             _file_dict['aggregation_detection_result'][number_format] = collected_results
         end_time = time.time()
@@ -127,7 +110,7 @@ class MultiAggregateeAggrdet(AggregationDetection):
 
     def detect_column_wise_aggregations(self, file_dict):
         start_time = time.time()
-        _file_dict = copy(file_dict)
+        _file_dict = deepcopy(file_dict)
         _file_dict['aggregation_detection_result'] = {}
         for number_format in _file_dict['valid_number_formats']:
             # Todo: just for fair timeout comparison
@@ -147,15 +130,15 @@ class MultiAggregateeAggrdet(AggregationDetection):
                 forest_by_column_index[index] = forest
             collected_results_by_column = {}
             while True:
-                ar_cands_by_column = [(self.detect_proximity_aggregation_relations(forest, self.error_level, 'ratio'), forest) for forest in
-                                      forests_by_columns]
+                ar_cands_by_column = {index: (self.detect_proximity_aggregation_relations(forest, self.error_level, 'ratio'), forest) for index, forest in
+                                      forest_by_column_index.items()}
+
+                self.mend_adjacent_aggregations(ar_cands_by_column, table_value, self.error_level, axis=1)
+
                 # get all non empty ar_cands
-                ar_cands_by_column = list(filter(lambda x: bool(x[0]), ar_cands_by_column))
+                ar_cands_by_column = list(filter(lambda x: bool(x[0]), ar_cands_by_column.values()))
                 if not ar_cands_by_column:
                     break
-
-                # Todo: mend the detected proximity aggregations
-                self.mend_adjacent_aggregations(ar_cands_by_column, table_value, self.error_level, axis=1)
 
                 forest_indexed_by_ar_cand = {}
                 for ar_cands, forest in ar_cands_by_column:
@@ -166,7 +149,8 @@ class MultiAggregateeAggrdet(AggregationDetection):
 
                 ar_cands_by_row_index = prune_conflict_ar_cands(ar_cands_by_column, axis=1)
 
-                ar_cands_by_row_index = {k: v for k, v in ar_cands_by_row_index.items() if len(v) / len(numeric_line_indices[1]) >= self.NUMERIC_SATISFIED_RATIO}
+                ar_cands_by_row_index = {k: v for k, v in ar_cands_by_row_index.items() if
+                                         len(v) / len(numeric_line_indices[1]) >= self.NUMERIC_SATISFIED_RATIO}
 
                 if not bool(ar_cands_by_row_index):
                     break
@@ -177,11 +161,7 @@ class MultiAggregateeAggrdet(AggregationDetection):
 
                 extended_ar_cands_w_forest = []
                 for ar_row_indices, ar_cands_w_forest in ar_cands_by_row_index.items():
-                    # try:
                     [forest.consume_relation(ar_cand) for ar_cand, forest in ar_cands_w_forest]
-                    # except KeyError:
-                    #     print(file_dict['file_name'])
-                    #     continue
                     confirmed_ars_column_index = [ar_cand.aggregator.cell_index.column_index for ar_cand, _ in ar_cands_w_forest]
                     if self.use_extend_strategy:
                         num_columns = file_cells.shape[1]
@@ -204,12 +184,6 @@ class MultiAggregateeAggrdet(AggregationDetection):
                                 # create an extended aggregation and make it consumed by the forest for this column
                                 forest_by_column_index[i].consume_relation(extended_ar_cand)
 
-                # Todo: delete the nodes only in the trees that an aggregation affects.
-                # for _, ar_cands_w_forest in ar_cands_by_row_index.items():
-                #     [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in ar_cands_w_forest]
-                # if self.use_extend_strategy:
-                #     [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in extended_ar_cands_w_forest]
-
                 for signature in ar_cands_by_row_index.keys():
                     # [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in ar_cands_w_forest]
                     [forest.remove_consumed_signature(signature, axis=1) for forest in forest_by_column_index.values()]
@@ -220,12 +194,6 @@ class MultiAggregateeAggrdet(AggregationDetection):
                 results_dict = forest.results_to_str(self.operator, AggregationDirection.COLUMN_WISE.value)
                 collected_results_by_column[forest] = results_dict
 
-            # if self.use_delayed_bruteforce:
-            #     delayed_bruteforce(collected_results_by_column, table_value, self.error_level, axis=1)
-            #     remove_duplicates(collected_results_by_column)
-            #     collected_results = remove_occasional(collected_results_by_column, axis=1)
-            # else:
-            #     collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_column.items()]))
             collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_column.items()]))
 
             _file_dict['aggregation_detection_result'][number_format] = collected_results
@@ -233,19 +201,3 @@ class MultiAggregateeAggrdet(AggregationDetection):
         exec_time = end_time - start_time
         _file_dict['exec_time']['ColumnWiseDetection'] = exec_time
         return _file_dict
-
-    def to_number(self, value, operator):
-        number = None
-        if operator == AggregationOperator.SUM.value:
-            if value in empty_cell_values:
-                number = Decimal(0)
-        elif operator == AggregationOperator.AVERAGE.value:
-            pass
-        else:
-            raise NotImplementedError
-
-        try:
-            number = Decimal(value)
-        except decimal.InvalidOperation:
-            pass
-        return number

@@ -17,6 +17,8 @@ from pebble import ProcessPool
 from tqdm import tqdm
 
 from approach.aggrdet._AverageDetection import AverageDetection
+from approach.aggrdet._DivisionDetection import DivisionDetection
+from approach.aggrdet._RelativeChangeDetection import RelativeChangeDetection
 from approach.aggrdet._SumDetection import SumDetection
 from approach.aggrdet.bruteforce import DelayedBruteforce
 from approach.aggrdet.resultsfusion import fuse_aggregation_results
@@ -71,10 +73,22 @@ class Aggrdet(luigi.Task):
                                                                      use_extend_strategy=self.use_extend_strategy,
                                                                      use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout,
                                                                      debug=self.debug)}
-            all_detectors = {**sum_detector, **average_detector}
+            division_detector = {
+                'division_detector': DivisionDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+                                                       use_extend_strategy=self.use_extend_strategy, use_delayed_bruteforce=self.use_delayed_bruteforce,
+                                                       timeout=self.timeout, debug=self.debug)}
+            relative_change_detector = {
+                'relative_change_detector': RelativeChangeDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+                                                                    use_extend_strategy=self.use_extend_strategy,
+                                                                    use_delayed_bruteforce=self.use_delayed_bruteforce,
+                                                                    timeout=self.timeout, debug=self.debug)}
+
+            all_detectors = {**sum_detector, **average_detector, **division_detector, **relative_change_detector}
 
             required = {AggregationOperator.SUM.value: sum_detector,
                         AggregationOperator.AVERAGE.value: average_detector,
+                        AggregationOperator.DIVISION.value: division_detector,
+                        AggregationOperator.RELATIVE_CHANGE.value: relative_change_detector,
                         'All': all_detectors}.get(self.target_aggregation_type, None)
 
             if required is None:
@@ -84,7 +98,6 @@ class Aggrdet(luigi.Task):
 
     def run(self):
         if self.use_delayed_bruteforce:
-            # Todo!!!
             with self.input().open('r') as file_reader:
                 gathered_detection_results = [json.loads(line) for line in file_reader]
         else:

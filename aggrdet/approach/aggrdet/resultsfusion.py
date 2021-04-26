@@ -2,7 +2,7 @@
 import ast
 import itertools
 
-from helpers import AggregationDirection
+from helpers import AggregationDirection, AggregationOperator
 
 
 def __filter_aggregations_by_signature(results_by_signature):
@@ -19,6 +19,7 @@ def __filter_aggregations_by_signature(results_by_signature):
 
         this_aggor = signature[0][0]
         this_aggees = signature[0][1]
+        this_operator = signature[1]
 
         # set the marks of those entries after this, which should be filtered out, as "1"
         if all([e == 1 for e in marks[index + 1: len(results_by_signature)]]):
@@ -29,13 +30,24 @@ def __filter_aggregations_by_signature(results_by_signature):
                 continue
             that_aggor = that_signature[0][0]
             that_aggees = that_signature[0][1]
+            that_operator = that_signature[1]
 
             # if complete inclusion is satisfied (either way), filter out
             if this_aggor in that_aggees and len(set(this_aggees).intersection(set(that_aggees))) > 0:
                 marks[that_index] = 1
             if that_aggor in this_aggees and len(set(this_aggees).intersection(set(that_aggees))) > 0:
                 marks[that_index] = 1
-            pass
+
+            if this_operator == AggregationOperator.DIVISION.value or that_operator == AggregationOperator.DIVISION.value:
+                continue
+
+            # if same aggregator, inclusive aggregatees happens (either way), filter out
+            if this_aggor == that_aggor and len(set(this_aggees).intersection(set(that_aggees))) > 0:
+                marks[that_index] = 1
+
+            # if circular aggregator-aggregatee happens (either way), filter out
+            if this_aggor in that_aggees and that_aggor in this_aggees:
+                marks[that_index] = 1
     preserved_signatures = [signature for index, signature in enumerate(signatures) if marks[index] == 0]
     preserved_aggregations = [v for k, v in results_by_signature.items() if k in preserved_signatures]
     return list(itertools.chain(*preserved_aggregations))
@@ -62,8 +74,11 @@ def fuse_aggregation_results(file_dicts):
                 if signature not in result_grp_by_column_sign_operator:
                     result_grp_by_column_sign_operator[signature] = []
                 result_grp_by_column_sign_operator[signature].append(aggrdet_result)
+
+            # order the result groups by 1) the length of aggregatee list; 2) the number of their detected aggregations
+            # the higher the group is in the rank, the more detected aggregations in a group and the longer the aggregatee list is
             result_grp_by_column_sign_operator = {k: v for k, v in
-                                                  sorted(result_grp_by_column_sign_operator.items(), key=lambda e: (len(e[1]), len(e[0][0][1])), reverse=True)}
+                                                  sorted(result_grp_by_column_sign_operator.items(), key=lambda e: (len(e[0][0][1]), len(e[1])), reverse=True)}
             filtered_results_row_wise = __filter_aggregations_by_signature(result_grp_by_column_sign_operator)
             filtered_results.extend(filtered_results_row_wise)
 
@@ -83,8 +98,11 @@ def fuse_aggregation_results(file_dicts):
                 if signature not in result_grp_by_row_sign_operator:
                     result_grp_by_row_sign_operator[signature] = []
                 result_grp_by_row_sign_operator[signature].append(aggrdet_result)
+
+            # order the result groups by 1) the length of aggregatee list; 2) the number of their detected aggregations
+            # the higher the group is in the rank, the more detected aggregations in a group and the longer the aggregatee list is
             result_grp_by_row_sign_operator = {k: v for k, v in
-                                               sorted(result_grp_by_row_sign_operator.items(), key=lambda e: (len(e[1]), len(e[0][0][1])), reverse=True)}
+                                               sorted(result_grp_by_row_sign_operator.items(), key=lambda e: (len(e[0][0][1]), len(e[1])), reverse=True)}
             filtered_results_column_wise = __filter_aggregations_by_signature(result_grp_by_row_sign_operator)
             filtered_results.extend(filtered_results_column_wise)
 

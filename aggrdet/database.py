@@ -170,7 +170,7 @@ def store_experiment_result(exp_results, ds_name, eval_only_aggor, target_aggreg
             false_positives = sum([r[2] for r in results])
             precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) != 0 else 1.0
             recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) != 0 else 1.0
-            f1 = 2 * precision * recall / (precision + recall)
+            f1 = 2 * precision * recall / (precision + recall) if (precision, recall) != (0, 0) else 0
 
             all_keys = true_positives_partial.keys()
 
@@ -180,8 +180,8 @@ def store_experiment_result(exp_results, ds_name, eval_only_aggor, target_aggreg
             recall_partial = {k: len(true_positives_partial[k]) / (len(true_positives_partial[k]) + len(false_negatives_partial[k])) if (len(
                 true_positives_partial[k]) + len(false_negatives_partial[k])) != 0 else 1 for k in
                               all_keys}
-            f1_partial = {k: 2 * precision_partial[k] * recall_partial[k] / (precision_partial[k] + recall_partial[k]) for k in
-                          all_keys}
+            f1_partial = {k: 2 * precision_partial[k] * recall_partial[k] / (precision_partial[k] + recall_partial[k]) if precision_partial[k] + recall_partial[k] != 0 else 1
+                          for k in all_keys}
             precision_partial = json.dumps(precision_partial)
             recall_partial = json.dumps(recall_partial)
             f1_partial = json.dumps(f1_partial)
@@ -212,18 +212,29 @@ def store_experiment_result(exp_results, ds_name, eval_only_aggor, target_aggreg
                         AggregationOperator.SUM.value: sum([len(v) for k, v in result['correct'].items() if k == AggregationOperator.SUM.value]),
                         AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['correct'].items() if k == AggregationOperator.AVERAGE.value]),
                         AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['correct'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        AggregationOperator.DIVISION.value: sum([len(v) for k, v in result['correct'].items() if k == AggregationOperator.DIVISION.value]),
+                        AggregationOperator.RELATIVE_CHANGE.value: sum(
+                            [len(v) for k, v in result['correct'].items() if k == AggregationOperator.RELATIVE_CHANGE.value]),
                         'All': sum([len(v) for k, v in result['correct'].items()]),
                     }.get(target_aggregation_type, None)
                     num_incorrect = {
                         AggregationOperator.SUM.value: sum([len(v) for k, v in result['incorrect'].items() if k == AggregationOperator.SUM.value]),
                         AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['incorrect'].items() if k == AggregationOperator.AVERAGE.value]),
-                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['incorrect'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['incorrect'].items() if k == AggregationOperator.SUBTRACT.value]), \
+                        AggregationOperator.DIVISION.value: sum([len(v) for k, v in result['incorrect'].items() if k == AggregationOperator.DIVISION.value]),
+                        AggregationOperator.RELATIVE_CHANGE.value: sum(
+                            [len(v) for k, v in result['incorrect'].items() if k == AggregationOperator.RELATIVE_CHANGE.value]),
                         'All': sum([len(v) for k, v in result['incorrect'].items()]),
                     }.get(target_aggregation_type, None)
                     num_false_positives = {
                         AggregationOperator.SUM.value: sum([len(v) for k, v in result['false_positive'].items() if k == AggregationOperator.SUM.value]),
                         AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['false_positive'].items() if k == AggregationOperator.AVERAGE.value]),
-                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['false_positive'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        AggregationOperator.SUBTRACT.value: sum(
+                            [len(v) for k, v in result['false_positive'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        AggregationOperator.DIVISION.value: sum(
+                            [len(v) for k, v in result['false_positive'].items() if k == AggregationOperator.DIVISION.value]),
+                        AggregationOperator.RELATIVE_CHANGE.value: sum(
+                            [len(v) for k, v in result['false_positive'].items() if k == AggregationOperator.RELATIVE_CHANGE.value]),
                         'All': sum([len(v) for k, v in result['false_positive'].items()]),
                     }.get(target_aggregation_type, None)
                     inserted_list.append([experiment_id, result['file_name'], result['table_id'],
@@ -236,19 +247,34 @@ def store_experiment_result(exp_results, ds_name, eval_only_aggor, target_aggreg
                     num_tp_only_aggor = {
                         AggregationOperator.SUM.value: sum([len(v) for k, v in result['tp_only_aggor'].items() if k == AggregationOperator.SUM.value]),
                         AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['tp_only_aggor'].items() if k == AggregationOperator.AVERAGE.value]),
-                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['tp_only_aggor'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        AggregationOperator.SUBTRACT.value: sum(
+                            [len(v) for k, v in result['tp_only_aggor'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        AggregationOperator.DIVISION.value: sum(
+                            [len(v) for k, v in result['tp_only_aggor'].items() if k == AggregationOperator.DIVISION.value]),
+                        AggregationOperator.RELATIVE_CHANGE.value: sum(
+                            [len(v) for k, v in result['tp_only_aggor'].items() if k == AggregationOperator.RELATIVE_CHANGE.value]),
                         'All': sum([len(v) for k, v in result['tp_only_aggor'].items()]),
                     }.get(target_aggregation_type, None)
                     num_fn_only_aggor = {
                         AggregationOperator.SUM.value: sum([len(v) for k, v in result['fn_only_aggor'].items() if k == AggregationOperator.SUM.value]),
                         AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['fn_only_aggor'].items() if k == AggregationOperator.AVERAGE.value]),
-                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['fn_only_aggor'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        AggregationOperator.SUBTRACT.value: sum(
+                            [len(v) for k, v in result['fn_only_aggor'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        AggregationOperator.DIVISION.value: sum(
+                            [len(v) for k, v in result['fn_only_aggor'].items() if k == AggregationOperator.DIVISION.value]),
+                        AggregationOperator.RELATIVE_CHANGE.value: sum(
+                            [len(v) for k, v in result['fn_only_aggor'].items() if k == AggregationOperator.RELATIVE_CHANGE.value]),
                         'All': sum([len(v) for k, v in result['fn_only_aggor'].items()]),
                     }.get(target_aggregation_type, None)
                     num_fp_only_aggor = {
                         AggregationOperator.SUM.value: sum([len(v) for k, v in result['fp_only_aggor'].items() if k == AggregationOperator.SUM.value]),
                         AggregationOperator.AVERAGE.value: sum([len(v) for k, v in result['fp_only_aggor'].items() if k == AggregationOperator.AVERAGE.value]),
-                        AggregationOperator.SUBTRACT.value: sum([len(v) for k, v in result['fp_only_aggor'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        AggregationOperator.SUBTRACT.value: sum(
+                            [len(v) for k, v in result['fp_only_aggor'].items() if k == AggregationOperator.SUBTRACT.value]),
+                        AggregationOperator.DIVISION.value: sum(
+                            [len(v) for k, v in result['fp_only_aggor'].items() if k == AggregationOperator.DIVISION.value]),
+                        AggregationOperator.RELATIVE_CHANGE.value: sum(
+                            [len(v) for k, v in result['fp_only_aggor'].items() if k == AggregationOperator.RELATIVE_CHANGE.value]),
                         'All': sum([len(v) for k, v in result['fp_only_aggor'].items()]),
                     }.get(target_aggregation_type, None)
                     inserted_list.append([experiment_id, result['file_name'], result['table_id'],

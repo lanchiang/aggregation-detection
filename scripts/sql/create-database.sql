@@ -59,7 +59,7 @@ CREATE TABLE aggregation_type
 
 TABLESPACE pg_default;
 
-INSERT INTO aggregation_type (name) VALUES ('Sum'), ('Subtract'), ('Average'), ('Percentage'), ('All');
+INSERT INTO aggregation_type (name) VALUES ('Sum'), ('Average'), ('Division'), ('RelativeChange'), ('All');
 
 ALTER TABLE aggregation_type OWNER TO aggrdet;
 

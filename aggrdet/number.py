@@ -6,7 +6,6 @@ from decimal import Decimal, InvalidOperation
 
 import numpy as np
 
-
 currency_symbols = ['$', '€', '£']
 
 

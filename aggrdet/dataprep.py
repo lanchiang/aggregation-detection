@@ -64,7 +64,7 @@ class DataPreparation(luigi.Task):
     """
 
     dataset_path = luigi.Parameter()
-    result_path = luigi.Parameter('/debug/')
+    result_path = luigi.Parameter(default='/debug/')
     error_level = luigi.FloatParameter(default=0)
     use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
@@ -87,13 +87,13 @@ class DataPreparation(luigi.Task):
             file_dicts = np.array([json.loads(line) for line in file_reader])
 
         for file_dict in tqdm(file_dicts, desc='Data preparation'):
-            normalized_file_arr, _ = normalize_file(np.copy(file_dict['table_array']), file_dict['number_format'])
+            normalized_file_arr, _, _ = normalize_file(np.copy(file_dict['table_array']), file_dict['number_format'])
             normalized_file_content = np.array(normalized_file_arr)
             cleaned_aggregation_annotations = []
             for annotation in file_dict['aggregation_annotations']:
                 aggor_index = tuple(annotation['aggregator_index'])
-                # if aggor_index != (77, 8):
-                #     continue
+                # if file_dict['file_name'] == 'C10035' and aggor_index == (8, 7):
+                #     print("STOP!")
 
                 # Todo: has problem: what if the number is negative?
                 aggor_value = re.sub('[^0-9,.\-+\s]', '', normalized_file_content[aggor_index])  # remove all characters that cannot appear in a numeric value
@@ -118,36 +118,52 @@ class DataPreparation(luigi.Task):
                     expected = sum([aggee_value for aggee_value in aggee_values]) / len(aggee_values)
                     actual = aggor_value
                     error = expected - actual
-                elif operator == AggregationOperator.PERCENTAGE.value:
+                elif operator == AggregationOperator.DIVISION.value:
                     aggor_value = str2decimal(aggor_value, None)
                     aggee_values = [str2decimal(aggee_value, None) for aggee_value in _aggee_values]
                     if aggor_value is None or any([aggee_value is None for aggee_value in aggee_values]):
                         actual = 0
-                        expected = math.inf
+                        expected = -1
                     else:
                         actual = aggor_value
                         try:
-                            percentage = aggee_values[0] / aggee_values[1]
+                            expected = aggee_values[0] / aggee_values[1]
                         except decimal.DivisionByZero:
-                            percentage = math.inf
+                            expected = -1
                         except decimal.InvalidOperation:
                             continue
+                    if abs(expected - actual) < abs(expected - actual / 100):
+                        error = abs(expected - actual)
+                    else:
+                        error = abs(expected - actual / 100)
+                        actual = actual / 100
+                elif operator == AggregationOperator.RELATIVE_CHANGE.value:
+                    aggor_value = str2decimal(aggor_value, None)
+                    aggee_values = [str2decimal(aggee_value, None) for aggee_value in _aggee_values]
+                    if aggor_value is None or any([aggee_value is None for aggee_value in aggee_values]):
+                        actual = 0
+                        expected = -1
+                    else:
+                        actual = aggor_value
                         try:
-                            relative_increment = (aggee_values[1] - aggee_values[0]) / aggee_values[0]
+                            expected = (aggee_values[1] - aggee_values[0]) / aggee_values[0]
                         except decimal.DivisionByZero:
-                            relative_increment = math.inf
+                            expected = -1
                         except decimal.InvalidOperation:
                             continue
-                        expected = min(percentage, relative_increment)
-                    error = min(expected - actual, expected, actual * 100)
+                    if abs(expected - actual) < abs(expected - actual / 100):
+                        error = abs(expected - actual)
+                    else:
+                        error = abs(expected - actual / 100)
+                        actual = actual / 100
                 else:
-                    raise RuntimeError("Given aggregation operator string is illegal.")
+                    raise RuntimeError("Given aggregation operator string is illegal: %s" % operator)
 
                 # error = expected - actual
                 if actual == 0.0:
                     true_error_level = -1.0
                 else:
-                    true_error_level = abs((expected - actual) / actual)
+                    true_error_level = abs(error / actual)
                 if true_error_level >= 1:
                     continue
                 # absolute error level
@@ -172,7 +188,7 @@ class NumberFormatNormalization(luigi.Task):
     """
 
     dataset_path = luigi.Parameter()
-    result_path = luigi.Parameter('/debug')
+    result_path = luigi.Parameter('./debug/')
     error_level = luigi.FloatParameter(default=0)
     use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
@@ -201,8 +217,9 @@ class NumberFormatNormalization(luigi.Task):
                 number_format = detect_number_format(np.array(file_dict['table_array']), self.sample_ratio)
                 transformed_values_by_number_format = {}
                 numeric_line_indices = {}
+                file_cell_data_types = {}
                 for nf in number_format:
-                    transformed_values_by_number_format[nf], numeric_line_indices[nf] = normalize_file(file_dict['table_array'], nf)
+                    transformed_values_by_number_format[nf], numeric_line_indices[nf], file_cell_data_types[nf] = normalize_file(file_dict['table_array'], nf)
                 file_dict['valid_number_formats'] = transformed_values_by_number_format
                 file_dict['numeric_line_indices'] = numeric_line_indices
 

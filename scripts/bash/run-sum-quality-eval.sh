@@ -46,10 +46,12 @@ if [ "$delayBruteForceStrategy" != true ]; then
 #  delayBruteForceStrategy=true
 fi
 
-#errorLevel="0 0.00001 0.00005 0.0001 0.0005 0.001 0.005 0.01"
-errorLevel="0 0.0001"
+errorLevel="0 0.00001 0.00005 0.0001 0.0005 0.001 0.005 0.01 0.05 0.1"
+#errorLevel="0 0.0001 0.001 0.01 0.1"
+#errorLevel="0 0.0001 0.0001"
+#errorLevel="0.05 0.1"
 
-timeout=600
+timeout=300
 
 #for i in $(seq 0 0.005 1); do
 for i in $errorLevel; do
