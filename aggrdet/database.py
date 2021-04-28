@@ -113,6 +113,7 @@ def store_experiment_result(exp_results, ds_name, eval_only_aggor, target_aggreg
 
             algorithm = exp_results[0]['parameters']['algorithm']
             error_level = exp_results[0]['parameters']['error_level']
+            # error_level = json.loads(exp_results[0]['parameters']['error_level'])
             error_strategy = exp_results[0]['parameters']['error_strategy']
             extended_strategy = exp_results[0]['parameters']['use_extend_strategy']
             use_delayed_bruteforce_strategy = exp_results[0]['parameters']['use_delayed_bruteforce_strategy']

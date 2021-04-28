@@ -45,7 +45,7 @@ def remove_duplicates(collected_results_by_line):
 class Aggrdet(luigi.Task):
     dataset_path = luigi.Parameter()
     result_path = luigi.Parameter('./debug/')
-    error_level = luigi.FloatParameter(default=0)
+    error_level_dict = luigi.DictParameter()
     target_aggregation_type = luigi.Parameter(default='All')
     error_strategy = luigi.Parameter(default='ratio')
     use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
@@ -62,23 +62,43 @@ class Aggrdet(luigi.Task):
 
     def requires(self):
         if self.use_delayed_bruteforce:
-            return DelayedBruteforce(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+            return DelayedBruteforce(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level_dict,
                                      target_aggregation_type=self.target_aggregation_type,
                                      error_strategy=self.error_strategy, use_extend_strategy=self.use_extend_strategy, timeout=self.timeout, debug=self.debug)
         else:
-            sum_detector = {'sum_detector': SumDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+            # sum_detector = {'sum_detector': SumDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+            #                                              use_extend_strategy=self.use_extend_strategy,
+            #                                              use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout, debug=self.debug)}
+            # average_detector = {'average_detector': AverageDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+            #                                                          use_extend_strategy=self.use_extend_strategy,
+            #                                                          use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout,
+            #                                                          debug=self.debug)}
+            # division_detector = {
+            #     'division_detector': DivisionDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+            #                                            use_extend_strategy=self.use_extend_strategy, use_delayed_bruteforce=self.use_delayed_bruteforce,
+            #                                            timeout=self.timeout, debug=self.debug)}
+            # relative_change_detector = {
+            #     'relative_change_detector': RelativeChangeDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+            #                                                         use_extend_strategy=self.use_extend_strategy,
+            #                                                         use_delayed_bruteforce=self.use_delayed_bruteforce,
+            #                                                         timeout=self.timeout, debug=self.debug)}
+            sum_detector = {'sum_detector': SumDetection(dataset_path=self.dataset_path, result_path=self.result_path,
+                                                         error_level_dict=self.error_level_dict,
                                                          use_extend_strategy=self.use_extend_strategy,
                                                          use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout, debug=self.debug)}
-            average_detector = {'average_detector': AverageDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+            average_detector = {'average_detector': AverageDetection(dataset_path=self.dataset_path, result_path=self.result_path,
+                                                                     error_level_dict=self.error_level_dict,
                                                                      use_extend_strategy=self.use_extend_strategy,
                                                                      use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout,
                                                                      debug=self.debug)}
             division_detector = {
-                'division_detector': DivisionDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+                'division_detector': DivisionDetection(dataset_path=self.dataset_path, result_path=self.result_path,
+                                                       error_level_dict=self.error_level_dict,
                                                        use_extend_strategy=self.use_extend_strategy, use_delayed_bruteforce=self.use_delayed_bruteforce,
                                                        timeout=self.timeout, debug=self.debug)}
             relative_change_detector = {
-                'relative_change_detector': RelativeChangeDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+                'relative_change_detector': RelativeChangeDetection(dataset_path=self.dataset_path, result_path=self.result_path,
+                                                                    error_level_dict=self.error_level_dict,
                                                                     use_extend_strategy=self.use_extend_strategy,
                                                                     use_delayed_bruteforce=self.use_delayed_bruteforce,
                                                                     timeout=self.timeout, debug=self.debug)}

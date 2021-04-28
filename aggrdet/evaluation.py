@@ -1,8 +1,6 @@
 # Created by lan at 2021/2/9
+import itertools
 import json
-import math
-from copy import copy
-from pprint import pprint
 
 import luigi
 
@@ -13,13 +11,14 @@ from eval._AverageQualityEval import AverageQualityEval
 from eval._DivisionQualityEval import DivisionQualityEval
 from eval._RelativeChangeEval import RelativeChangeQualityEval
 from eval._SumQualityEval import SumQualityEval
-from helpers import extract_dataset_name, is_aggregation_equal, AggregationOperator
+from helpers import extract_dataset_name, AggregationOperator
 
 
 class QualityEvaluation(luigi.Task):
     dataset_path = luigi.Parameter()
     algorithm = luigi.Parameter(default='Aggrdet')
-    error_level = luigi.FloatParameter(default=0)
+    # error_level = luigi.FloatParameter(default=0)
+    error_level_dict = luigi.DictParameter()
     target_aggregation_type = luigi.Parameter(default='All')
     error_strategy = luigi.Parameter(default='ratio')
     timeout = luigi.FloatParameter(default=300)
@@ -35,17 +34,17 @@ class QualityEvaluation(luigi.Task):
 
     def requires(self):
         if self.algorithm == 'Aggrdet':
-            return Aggrdet(self.dataset_path, self.result_path, self.error_level, self.target_aggregation_type, self.error_strategy,
+            return Aggrdet(self.dataset_path, self.result_path, self.error_level_dict, self.target_aggregation_type, self.error_strategy,
                            self.use_extend_strategy, self.use_delayed_bruteforce, debug=self.debug, timeout=self.timeout)
         elif self.algorithm == 'Baseline':
-            return Baseline(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level, timeout=self.timeout,
+            return Baseline(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level_dict, timeout=self.timeout,
                             verbose=self.verbose, debug=self.debug)
 
     def run(self):
         if self.verbose:
             print("Parameter summary: \n Dataset path: %s \n Error level: %s \n Evaluate aggregator only: %s \n Use aggregation extension strategy: %s "
                   "\n Timeout: %s \n Use delayed brute-force strategy: %s \n Target aggregation type: %s" %
-                  (self.dataset_path, self.error_level, self.eval_only_aggor, self.use_extend_strategy, self.timeout,
+                  (self.dataset_path, self.error_level_dict, self.eval_only_aggor, self.use_extend_strategy, self.timeout,
                    self.use_delayed_bruteforce, self.target_aggregation_type))
         with self.input().open('r') as file_reader:
             results_dict = [json.loads(line) for line in file_reader]
@@ -68,7 +67,6 @@ class QualityEvaluation(luigi.Task):
             AggregationOperator.DIVISION.value: [DivisionQualityEval(file_dicts)],
             AggregationOperator.RELATIVE_CHANGE.value: [RelativeChangeQualityEval(file_dicts)],
             'All': [SumQualityEval(file_dicts), AverageQualityEval(file_dicts), DivisionQualityEval(file_dicts), RelativeChangeQualityEval(file_dicts)]
-            # 'All': [SumQualityEval(file_dicts), AverageQualityEval(file_dicts), DivisionQualityEval(file_dicts)]
         }.get(target_aggregator_type, None)
 
         if evaluators is None:
@@ -79,3 +77,28 @@ class QualityEvaluation(luigi.Task):
 
 if __name__ == '__main__':
     luigi.run()
+
+    # error_level_candidates = [0, 0.00005, 0.0005, 0.005, 0.05]
+    #
+    # sum_error_level_candidates = [0.00005, 0.0001, 0.0005, 0.001]
+    # average_error_level_candidates = [0, 0.00001, 0.00005, 0.0001]
+    # division_error_level_candidates = [0.00001, 0.00005, 0.0001, 0.0005]
+    # relative_change_error_level_candidates = [0.005, 0.01, 0.05]
+    #
+    # error_level_products = itertools.product(sum_error_level_candidates, average_error_level_candidates, division_error_level_candidates, relative_change_error_level_candidates)
+    #
+    # error_level_dicts = []
+    # for error_level_permutation in error_level_products:
+    #     error_level_dict = json.dumps({'Sum': error_level_permutation[0], 'Average': error_level_permutation[1],
+    #                                    'Division': error_level_permutation[2], 'RelativeChange': error_level_permutation[3]})
+    #     error_level_dicts.append(error_level_dict)
+    #     # luigi.run(
+    #     #     cmdline_args=["--log-level=WARNING",
+    #     #                   "--dataset-path=../data/dataset.jl.gz",
+    #     #                   "--error-level=%s" % error_level_dict],
+    #     #     main_task_cls=QualityEvaluation,
+    #     #     local_scheduler=True)
+    #
+    # with open('./temp/error_level_dicts.txt', mode='w') as file_writer:
+    #     for error_level_dict in error_level_dicts:
+    #         file_writer.write(error_level_dict + '\n')

@@ -107,7 +107,7 @@ CREATE TABLE experiment
     id SERIAL PRIMARY KEY,
     algorithm text NOT NULL,
     dataset_id integer NOT NULL,
-    error_level decimal NOT NULL,
+    error_level json NOT NULL,
     only_aggregator boolean NOT NULL,
     target_aggregation_type_id integer NOT NULL,
     error_strategy text,

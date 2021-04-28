@@ -9,7 +9,7 @@ import numpy as np
 from approach.aggrdet.detections import prune_conflict_ar_cands
 from approach.approach import AggregationDetection
 from elements import Cell, CellIndex, AggregationRelation
-from helpers import AggregationDirection
+from helpers import AggregationDirection, AggregationOperator
 from tree import AggregationRelationForest
 
 
@@ -58,7 +58,7 @@ class BottomUpAggregationDetection(AggregationDetection, ABC):
                 ar_cands_by_column_index = prune_conflict_ar_cands(ar_cands_by_row, axis=0)
 
                 ar_cands_by_column_index = {k: v for k, v in ar_cands_by_column_index.items() if
-                                            len(v) / len(numeric_line_indices[0]) >= self.NUMERIC_SATISFIED_RATIO}
+                                            len(v) / len(numeric_line_indices[1][str(k[0])]) >= self.NUMERIC_SATISFIED_RATIO}
 
                 if not bool(ar_cands_by_column_index):
                     break
@@ -150,7 +150,7 @@ class BottomUpAggregationDetection(AggregationDetection, ABC):
                 ar_cands_by_row_index = prune_conflict_ar_cands(ar_cands_by_column, axis=1)
 
                 ar_cands_by_row_index = {k: v for k, v in ar_cands_by_row_index.items() if
-                                         len(v) / len(numeric_line_indices[1]) >= self.NUMERIC_SATISFIED_RATIO}
+                                         len(v) / len(numeric_line_indices[0][str(k[0])]) >= self.NUMERIC_SATISFIED_RATIO}
 
                 if not bool(ar_cands_by_row_index):
                     break

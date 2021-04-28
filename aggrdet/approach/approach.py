@@ -42,7 +42,7 @@ class Approach(ABC):
 class AggregationDetection(luigi.Task, Approach):
     dataset_path = luigi.Parameter()
     result_path = luigi.Parameter(default='/debug/')
-    error_level = luigi.FloatParameter(default=0)
+    error_level_dict = luigi.DictParameter(default={'Sum': 0, 'Average': 0, 'Division': 0, 'RelativeChange': 0})
     use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     timeout = luigi.FloatParameter(default=300)
@@ -50,6 +50,8 @@ class AggregationDetection(luigi.Task, Approach):
 
     operator = ''
     task_name = ''
+
+    error_level = 0
 
     NUMERIC_SATISFIED_RATIO = 0.5
     DIGIT_PLACES = 5
@@ -59,7 +61,7 @@ class AggregationDetection(luigi.Task, Approach):
 
     def requires(self):
         return NumberFormatNormalization(self.dataset_path, self.result_path,
-                                         self.error_level, self.use_extend_strategy, self.use_delayed_bruteforce, self.timeout,
+                                         self.error_level_dict, self.use_extend_strategy, self.use_delayed_bruteforce, self.timeout,
                                          debug=self.debug)
 
     def run(self):

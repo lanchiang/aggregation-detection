@@ -21,6 +21,7 @@ class AverageDetection(BottomUpAggregationDetection):
         super().__init__(*args, **kwargs)
         self.operator = AggregationOperator.AVERAGE.value
         self.task_name = self.__class__.__name__
+        self.error_level = self.error_level_dict[self.operator] if self.operator in self.error_level_dict else self.error_level
 
     def output(self):
         if self.debug:
@@ -51,23 +52,14 @@ class AverageDetection(BottomUpAggregationDetection):
             is_equal = False
             latest_error_level = math.inf
             for i in range(index + 1, len(roots)):
-                # if i == len(roots):
-                #     if current_lowest_error_level <= error_bound:
-                #         aggregatee_cells.append(roots[i - 1])
-                #         is_equal = True
-                #     break
-
                 try:
                     aggregatee = Decimal(roots[i].value)
                 except decimal.InvalidOperation:
-                    # if is_empty_cell(roots[i].value):
-                    #     aggregatee_cells.append(roots[i])
                     continue
                 else:
                     expected_sum += aggregatee if not aggregatee.is_nan() else Decimal(0.0)
                     aggregatee_cells.append(roots[i])
                     expected_average = round(expected_sum / Decimal(len(aggregatee_cells)), aggregator_digit_places)
-                    # expected_average = expected_sum / Decimal(len(aggregatee_cells))
                     if error_strategy == 'ratio':
                         if aggregator_value == 0:
                             latest_error_level = abs(expected_average - aggregator_value)
@@ -94,23 +86,14 @@ class AverageDetection(BottomUpAggregationDetection):
             is_equal = False
             latest_error_level = math.inf
             for i in reversed(range(index)):
-                # if i < 0:
-                #     if current_lowest_error_level <= error_bound:
-                #         aggregatee_cells.append(roots[0])
-                #         is_equal = True
-                #     break
-
                 try:
                     aggregatee = Decimal(roots[i].value)
                 except decimal.InvalidOperation:
-                    # if is_empty_cell(roots[i].value):
-                    #     aggregatee_cells.append(roots[i])
                     continue
                 else:
                     expected_sum += aggregatee if not aggregatee.is_nan() else Decimal(0.0)
                     aggregatee_cells.append(roots[i])
                     expected_average = round(expected_sum / Decimal(len(aggregatee_cells)), aggregator_digit_places)
-                    # expected_average = expected_sum / Decimal(len(aggregatee_cells))
                     if error_strategy == 'ratio':
                         if aggregator_value == 0:
                             latest_error_level = abs(expected_average - aggregator_value)
@@ -121,37 +104,21 @@ class AverageDetection(BottomUpAggregationDetection):
                             if len(set([elem.value for elem in aggregatee_cells])) != 1:
                                 is_equal = True
                                 break
-                        # if current_lowest_error_level < latest_error_level:
-                        #     if current_lowest_error_level <= error_bound:
-                        #         is_equal = True
-                        #     break
-                        # else:
-                        #     current_lowest_error_level = latest_error_level
                     elif error_strategy == 'value':
                         if abs(expected_average - aggregator_value) <= error_bound:
                             is_equal = True
                             break
             if is_equal and len(aggregatee_cells) >= 2:
-                # aggregatee_cells = aggregatee_cells[:len(aggregatee_cells) - 1]
-                # cursor = len(aggregatee_cells)
-                # for i in reversed(range(len(aggregatee_cells))):
-                #     if aggregatee_cells[i].value in hard_empty_cell_values:
-                #         cursor = i
-                #     else:
-                #         break
-                # aggregatee_cells = aggregatee_cells[:cursor]
-                if len(aggregatee_cells) > 1:
-                    if not (aggregator_value == 0 and all([aee_cell.value in hard_empty_cell_values or aee_cell.value == 0 for aee_cell in aggregatee_cells])):
-                        ar = AggregationRelation(copy(root), tuple([copy(aee_cell) for aee_cell in aggregatee_cells]), self.operator, Direction.BACKWARD)
-                        real_error_level = latest_error_level
-                        aggregation_candidates.append((ar, real_error_level))
+                if not (aggregator_value == 0 and all([aee_cell.value in hard_empty_cell_values or aee_cell.value == 0 for aee_cell in aggregatee_cells])):
+                    ar = AggregationRelation(copy(root), tuple([copy(aee_cell) for aee_cell in aggregatee_cells]), self.operator, Direction.BACKWARD)
+                    real_error_level = latest_error_level
+                    aggregation_candidates.append((ar, real_error_level))
 
         return aggregation_candidates
 
     def is_equal(self, aggregator_value, aggregatees, based_aggregator_value, error_bound):
         digit_places = self.DIGIT_PLACES
         expected_average = round(sum(aggregatees) / len(aggregatees), digit_places)
-        # expected_average = sum(aggregatees) / len(aggregatees)
         if aggregator_value == 0 or based_aggregator_value == 0:
             error_level = abs(expected_average - aggregator_value)
         else:
@@ -195,7 +162,7 @@ class AverageDetection(BottomUpAggregationDetection):
                             continue
                         if possible_aggor_value.is_nan() or any([e.is_nan() for e in numberized_aggee_values]):
                             continue
-                        real_error_level = self.is_equal(possible_aggor_value, numberized_aggee_values, based_aggregator_value, error_bound)
+                        real_error_level = self.is_equal(possible_aggor_value, numberized_aggee_values, possible_aggor_value, error_bound)
                         if real_error_level != math.inf:
                             mended_aggregation = AggregationRelation(Cell(CellIndex(row_index, key[0]), str(possible_aggor_value)),
                                                                      tuple([Cell(CellIndex(row_index, ci), file_content[row_index][ci]) for ci in
@@ -245,7 +212,7 @@ class AverageDetection(BottomUpAggregationDetection):
                         if possible_aggor_value.is_nan() or any([e.is_nan() for e in numberized_aggee_values]):
                             continue
 
-                        real_error_level = self.is_equal(possible_aggor_value, numberized_aggee_values, based_aggregator_value, error_bound)
+                        real_error_level = self.is_equal(possible_aggor_value, numberized_aggee_values, possible_aggor_value, error_bound)
                         if real_error_level != math.inf:
                             mended_aggregation = AggregationRelation(Cell(CellIndex(key[0], column_index), str(possible_aggor_value)),
                                                                      tuple([Cell(CellIndex(ri, column_index), file_content[ri][column_index]) for ri in
@@ -264,4 +231,3 @@ class AverageDetection(BottomUpAggregationDetection):
 
     def generate_ar_candidates_similar_headers(self):
         pass
-

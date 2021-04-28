@@ -49,19 +49,23 @@ fi
 errorLevel="0 0.00001 0.00005 0.0001 0.0005 0.001 0.005 0.01 0.05 0.1"
 #errorLevel="0 0.0001 0.001 0.01 0.1"
 #errorLevel="0 0.0001 0.0001"
-#errorLevel="0.05 0.1"
 
 timeout=300
 
 #for i in $(seq 0 0.005 1); do
 for i in $errorLevel; do
-#  echo "Used error level: $i"
+  if [ "$operator" == "All" ]; then
+    errorLevelDict="{\"Sum\": ${i}, \"Average\": ${i}, \"Division\": ${i}, \"RelativeChange\": ${i}}"
+  else
+    errorLevelDict="{\"${operator}\": ${i}}"
+  fi
+#  echo $errorLevelDict
   if [ "$algorithm" = 'Aggrdet' ]; then
     env PYTHONPATH=$pythonPath luigi --module evaluation QualityEvaluation \
     --local-scheduler \
     --algorithm $algorithm \
     --dataset-path $dataPath \
-    --error-level "$i" \
+    --error-level "$errorLevelDict" \
     --target-aggregation-type $operator \
     --use-extend-strategy $extendStrategy \
     --use-delayed-bruteforce $delayBruteForceStrategy \
@@ -74,7 +78,7 @@ for i in $errorLevel; do
     --local-scheduler \
     --algorithm $algorithm \
     --dataset-path $dataPath \
-    --error-level "$i" \
+    --error-level "$errorLevelDict" \
     --eval-only-aggor False \
     --log-level WARNING \
     --timeout $timeout

@@ -61,7 +61,7 @@ class SlidingAggregationDetection(AggregationDetection, ABC):
                 ar_cands_by_column_index = prune_conflict_ar_cands(ar_cands_by_row, axis=0)
 
                 ar_cands_by_column_index = {k: v for k, v in ar_cands_by_column_index.items() if
-                                            len(v) / len(numeric_line_indices[0]) >= self.NUMERIC_SATISFIED_RATIO}
+                                            len(v) / len(numeric_line_indices[1][str(k[0])]) >= self.NUMERIC_SATISFIED_RATIO}
 
                 if not bool(ar_cands_by_column_index):
                     collected_results = []
@@ -153,7 +153,7 @@ class SlidingAggregationDetection(AggregationDetection, ABC):
                 ar_cands_by_row_index = prune_conflict_ar_cands(ar_cands_by_column, axis=1)
 
                 ar_cands_by_row_index = {k: v for k, v in ar_cands_by_row_index.items() if
-                                         len(v) / len(numeric_line_indices[1]) >= self.NUMERIC_SATISFIED_RATIO}
+                                         len(v) / len(numeric_line_indices[0][str(k[0])]) >= self.NUMERIC_SATISFIED_RATIO}
 
                 if not bool(ar_cands_by_row_index):
                     collected_results = []

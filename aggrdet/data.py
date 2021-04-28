@@ -27,18 +27,26 @@ def normalize_file(file: np.ndarray, number_format: str):
     """
     trans_file = np.copy(file)
     file_cell_data_types = np.full_like(file, fill_value='S', dtype='object')
-    numeric_line_indices = ([], [])
+    numeric_line_indices = ({}, {})
+    # numeric_line_indices = ([], [])
     for index, value in np.ndenumerate(trans_file):
         processed_value = parse_number_string(value)
         matches = re.match(NumberFormatPattern.get(number_format), processed_value.strip())
         trans_file[index] = normalize_number(matches[0], number_format) if matches is not None else processed_value
         if matches is not None:
-            numeric_line_indices[0].append(index[0])
-            numeric_line_indices[1].append(index[1])
+            if index[0] not in numeric_line_indices[0]:
+                numeric_line_indices[0][index[0]] = []
+            numeric_line_indices[0][index[0]].append(index[1])
+
+            if index[1] not in numeric_line_indices[1]:
+                numeric_line_indices[1][index[1]] = []
+            numeric_line_indices[1][index[1]].append(index[0])
+            # numeric_line_indices[0].append(index[0])
+            # numeric_line_indices[1].append(index[1])
             file_cell_data_types[index] = 'N'
         if processed_value == '':
             file_cell_data_types[index] = 'E'
-    numeric_line_indices = (sorted(list(set(numeric_line_indices[0]))), list(set(numeric_line_indices[1])))
+    # numeric_line_indices = (sorted(list(set(numeric_line_indices[0]))), list(set(numeric_line_indices[1])))
     return trans_file.tolist(), numeric_line_indices, file_cell_data_types
 
 

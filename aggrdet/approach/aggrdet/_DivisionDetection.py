@@ -23,6 +23,7 @@ class DivisionDetection(SlidingAggregationDetection):
         super().__init__(*args, **kwargs)
         self.operator = AggregationOperator.DIVISION.value
         self.task_name = self.__class__.__name__
+        self.error_level = self.error_level_dict[self.operator] if self.operator in self.error_level_dict else self.error_level
 
     def output(self):
         if self.debug:

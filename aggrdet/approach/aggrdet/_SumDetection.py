@@ -21,6 +21,7 @@ class SumDetection(BottomUpAggregationDetection):
         super().__init__(*args, **kwargs)
         self.operator = AggregationOperator.SUM.value
         self.task_name = self.__class__.__name__
+        self.error_level = self.error_level_dict[self.operator] if self.operator in self.error_level_dict else self.error_level
 
     def output(self):
         if self.debug:
@@ -166,6 +167,8 @@ class SumDetection(BottomUpAggregationDetection):
                     for row_index in valid_row_indices:
                         if row_index == aggregation[0].aggregator.cell_index.row_index:
                             continue
+                        # if (row_index, key[0]) == (222, 3):
+                        #     print('STOP')
                         possible_aggee_values = [file_content[row_index][ci] for ci in aggregatee_column_indices]
                         numberized_aggee_values = [self.to_number(elem, AggregationOperator.SUM.value) for elem in possible_aggee_values]
                         numberized_aggee_values = [value if value is not None else Decimal(0) for value in numberized_aggee_values]
@@ -175,7 +178,7 @@ class SumDetection(BottomUpAggregationDetection):
                             continue
                         if possible_aggor_value.is_nan() or any([e.is_nan() for e in numberized_aggee_values]):
                             continue
-                        real_error_level = self.is_equal(possible_aggor_value, numberized_aggee_values, based_aggregator_value, error_bound)
+                        real_error_level = self.is_equal(possible_aggor_value, numberized_aggee_values, possible_aggor_value, error_bound)
                         if real_error_level != math.inf:
                             mended_aggregation = AggregationRelation(Cell(CellIndex(row_index, key[0]), str(possible_aggor_value)),
                                                                      tuple([Cell(CellIndex(row_index, ci), file_content[row_index][ci]) for ci in
@@ -218,7 +221,7 @@ class SumDetection(BottomUpAggregationDetection):
                             continue
                         if possible_aggor_value.is_nan() or any([e.is_nan() for e in numberized_aggee_values]):
                             continue
-                        real_error_level = self.is_equal(possible_aggor_value, numberized_aggee_values, based_aggregator_value, error_bound)
+                        real_error_level = self.is_equal(possible_aggor_value, numberized_aggee_values, possible_aggor_value, error_bound)
                         if real_error_level != math.inf:
                             mended_aggregation = AggregationRelation(Cell(CellIndex(key[0], column_index), str(possible_aggor_value)),
                                                                      tuple([Cell(CellIndex(ri, column_index), file_content[ri][column_index]) for ri in

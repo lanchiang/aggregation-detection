@@ -24,7 +24,7 @@ class LoadDataset(luigi.Task):
     """
 
     dataset_path = luigi.Parameter()
-    error_level = luigi.FloatParameter(default=0)
+    error_level_dict = luigi.DictParameter(default={'Sum': 0, 'Average': 0, 'Division': 0, 'RelativeChange': 0})
     use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     timeout = luigi.FloatParameter(default=300)
@@ -46,7 +46,7 @@ class LoadDataset(luigi.Task):
                                    'num_cols': jfd['num_cols'],
                                    'table_array': jfd['table_array'],
                                    'aggregation_annotations': jfd['aggregation_annotations'],
-                                   'parameters': {'error_level': self.error_level,
+                                   'parameters': {'error_level': json.dumps(dict(self.error_level_dict)),
                                                   'use_extend_strategy': self.use_extend_strategy,
                                                   'use_delayed_bruteforce_strategy': self.use_delayed_bruteforce,
                                                   'timeout': self.timeout},
@@ -65,7 +65,7 @@ class DataPreparation(luigi.Task):
 
     dataset_path = luigi.Parameter()
     result_path = luigi.Parameter(default='/debug/')
-    error_level = luigi.FloatParameter(default=0)
+    error_level_dict = luigi.DictParameter(default={'Sum': 0, 'Average': 0, 'Division': 0, 'RelativeChange': 0})
     use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     timeout = luigi.FloatParameter(default=300)
@@ -78,7 +78,7 @@ class DataPreparation(luigi.Task):
             return MockTarget('data-preparation')
 
     def requires(self):
-        return LoadDataset(error_level=self.error_level, use_extend_strategy=self.use_extend_strategy,
+        return LoadDataset(error_level_dict=self.error_level_dict, use_extend_strategy=self.use_extend_strategy,
                            use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout,
                            dataset_path=self.dataset_path, debug=self.debug, result_path=self.result_path)
 
@@ -189,7 +189,7 @@ class NumberFormatNormalization(luigi.Task):
 
     dataset_path = luigi.Parameter()
     result_path = luigi.Parameter('./debug/')
-    error_level = luigi.FloatParameter(default=0)
+    error_level_dict = luigi.DictParameter(default={'Sum': 0, 'Average': 0, 'Division': 0, 'RelativeChange': 0})
     use_extend_strategy = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     use_delayed_bruteforce = luigi.BoolParameter(default=False, parsing=luigi.BoolParameter.EXPLICIT_PARSING)
     timeout = luigi.FloatParameter(default=300)
@@ -205,7 +205,7 @@ class NumberFormatNormalization(luigi.Task):
 
     def requires(self):
         return DataPreparation(self.dataset_path, self.result_path,
-                               self.error_level, self.use_extend_strategy, self.use_delayed_bruteforce, self.timeout,
+                               self.error_level_dict, self.use_extend_strategy, self.use_delayed_bruteforce, self.timeout,
                                debug=self.debug)
 
     def run(self):
