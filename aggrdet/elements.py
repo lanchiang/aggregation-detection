@@ -99,6 +99,11 @@ class AggregationRelation:
         return self.aggregator, self.aggregatees, self.operator, self.direction
 
 
+# Todo: wrap signature with a class.
+class AggregationSignature:
+    pass
+
+
 if __name__ == '__main__':
     a = CellIndex(1, 2)
     b = CellIndex(1, 3)

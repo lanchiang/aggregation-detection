@@ -17,8 +17,7 @@ from helpers import extract_dataset_name, AggregationOperator
 class QualityEvaluation(luigi.Task):
     dataset_path = luigi.Parameter()
     algorithm = luigi.Parameter(default='Aggrdet')
-    # error_level = luigi.FloatParameter(default=0)
-    error_level_dict = luigi.DictParameter()
+    error_level_dict = luigi.DictParameter(default={'Sum': 0, 'Average': 0, 'Division': 0, 'RelativeChange': 0})
     target_aggregation_type = luigi.Parameter(default='All')
     error_strategy = luigi.Parameter(default='ratio')
     timeout = luigi.FloatParameter(default=300)

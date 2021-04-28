@@ -7,6 +7,7 @@ from pprint import pprint
 
 import numpy as np
 
+from approach.IndividualAggregationDetectionTask import IndividualAggregationDetection
 from approach.aggrdet.detections import prune_conflict_ar_cands
 from approach.approach import AggregationDetection
 from elements import Cell, CellIndex, AggregationRelation
@@ -14,7 +15,7 @@ from helpers import AggregationDirection
 from tree import AggregationRelationForest
 
 
-class SlidingAggregationDetection(AggregationDetection, ABC):
+class SlidingAggregationDetection(IndividualAggregationDetection, ABC):
 
     # Specify how many neighboring cells (in the same rows/columns) must be considered when looking for the aggregatees of an aggregator candidate
     PROXIMITY_WINDOW_SIZE = 10
@@ -40,8 +41,6 @@ class SlidingAggregationDetection(AggregationDetection, ABC):
             forest_by_row_index = {}
             for index, forest in enumerate(forests_by_rows):
                 forest_by_row_index[index] = forest
-            collected_results_by_row = {}
-
             ar_cands_by_row = [(self.detect_proximity_aggregation_relations(forest, self.error_level, 'ratio'), forest) for forest in
                                forests_by_rows]
             # get all non empty ar_cands
@@ -63,48 +62,14 @@ class SlidingAggregationDetection(AggregationDetection, ABC):
                 ar_cands_by_column_index = {k: v for k, v in ar_cands_by_column_index.items() if
                                             len(v) / len(numeric_line_indices[1][str(k[0])]) >= self.NUMERIC_SATISFIED_RATIO}
 
-                if not bool(ar_cands_by_column_index):
-                    collected_results = []
-                else:
+                collected_results = []
+                if bool(ar_cands_by_column_index):
                     for _, ar_cands in ar_cands_by_column_index.items():
-                        for i in range(len(ar_cands)):
-                            ar_cands[i] = (ar_cands[i], forest_indexed_by_ar_cand[ar_cands[i]])
-
-                    extended_ar_cands_w_forest = []
-                    for ar_column_indices, ar_cands_w_forest in ar_cands_by_column_index.items():
-                        [forest.consume_relation(ar_cand) for ar_cand, forest in ar_cands_w_forest]
-                        confirmed_ars_row_index = [ar_cand.aggregator.cell_index.row_index for ar_cand, _ in ar_cands_w_forest]
-                        if self.use_extend_strategy:
-                            num_rows = file_cells.shape[0]
-                            index_aggregator = ar_column_indices[0]
-                            for i in range(num_rows):
-                                # create an extended aggregation and make it consumed by the forest for this row
-                                extended_ar_cand_aggor = Cell(CellIndex(i, index_aggregator), table_value[i, index_aggregator])
-                                extended_ar_cand_aggees = tuple([Cell(CellIndex(i, j), table_value[i, j]) for j in ar_column_indices[1]])
-                                extended_ar_cand_direction = ar_cands_w_forest[0][0].direction
-                                extended_ar_cand = AggregationRelation(extended_ar_cand_aggor, extended_ar_cand_aggees, self.operator,
-                                                                       extended_ar_cand_direction)
-                                extended_ar_cands_w_forest.append((extended_ar_cand, forest_by_row_index[i]))
-
-                                if i in confirmed_ars_row_index or i not in forest_by_row_index:
-                                    continue
-                                try:
-                                    float(table_value[i, index_aggregator])
-                                except Exception:
-                                    continue
-                                else:
-                                    forest_by_row_index[i].consume_relation(extended_ar_cand)
-
-                    for signature in ar_cands_by_column_index.keys():
-                        [forest.remove_consumed_signature(signature, axis=0) for forest in forest_by_row_index.values()]
-                    if self.use_extend_strategy:
-                        [forest.remove_consumed_aggregator(ar_cand) for ar_cand, forest in extended_ar_cands_w_forest]
-
-                    for _, forest in forest_by_row_index.items():
-                        results_dict = forest.results_to_str(self.operator, AggregationDirection.ROW_WISE.value)
-                        collected_results_by_row[forest] = results_dict
-
-                    collected_results = list(itertools.chain(*[results_dict for _, results_dict in collected_results_by_row.items()]))
+                        for ar_cand in ar_cands:
+                            aggregator = str(ar_cand.aggregator.cell_index)
+                            aggregatees = [str(aggregatee.cell_index) for aggregatee in ar_cand.aggregatees]
+                            operator = ar_cand.operator
+                            collected_results.append((aggregator, aggregatees, operator, AggregationDirection.ROW_WISE.value))
 
             _file_dict['aggregation_detection_result'][number_format] = collected_results
         end_time = time.time()

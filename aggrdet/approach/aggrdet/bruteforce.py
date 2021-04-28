@@ -9,13 +9,12 @@ from copy import copy, deepcopy
 from decimal import Decimal
 
 import luigi
-import numpy as np
 from luigi.mock import MockTarget
 from pebble import ProcessPool
 from tqdm import tqdm
 
-from approach.aggrdet._AverageDetection import AverageDetection
-from approach.aggrdet._SumDetection import SumDetection
+from approach.aggrdet.individual._AverageDetection import AverageDetectionTask
+from approach.aggrdet.individual.sum import SumDetectionTask
 from helpers import AggregationOperator, AggregationDirection
 from number import get_indices_number_cells
 
@@ -41,12 +40,12 @@ class DelayedBruteforce(luigi.Task):
             return MockTarget('delayed-bruteforce')
 
     def requires(self):
-        sum_detector = {'sum_detector': SumDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
-                                                     use_extend_strategy=self.use_extend_strategy,
-                                                     use_delayed_bruteforce=False, timeout=self.timeout, debug=self.debug)}
-        average_detector = {'average_detector': AverageDetection(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
-                                                                 use_extend_strategy=self.use_extend_strategy,
-                                                                 use_delayed_bruteforce=False, timeout=self.timeout, debug=self.debug)}
+        sum_detector = {'sum_detector': SumDetectionTask(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+                                                         use_extend_strategy=self.use_extend_strategy,
+                                                         use_delayed_bruteforce=False, timeout=self.timeout, debug=self.debug)}
+        average_detector = {'average_detector': AverageDetectionTask(dataset_path=self.dataset_path, result_path=self.result_path, error_level=self.error_level,
+                                                                     use_extend_strategy=self.use_extend_strategy,
+                                                                     use_delayed_bruteforce=False, timeout=self.timeout, debug=self.debug)}
         all_detectors = {**sum_detector, **average_detector}
 
         required = {AggregationOperator.SUM.value: sum_detector,

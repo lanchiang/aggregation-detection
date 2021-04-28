@@ -30,8 +30,8 @@ class DivisionQualityEval(QualityEval):
 
                 # Given the original gt as A=B/C, alternative gts are A=C/B, B=C/A, C=B/A
                 alternative_gts = [(gt_aggregator, gt_aggregatees),
-                                   (gt_aggregator, [gt_aggregatees[1], gt_aggregatees[0]]),
-                                   (gt_aggregatees[0], [gt_aggregatees[1], gt_aggregator]),
+                                   # (gt_aggregator, [gt_aggregatees[1], gt_aggregatees[0]]),
+                                   # (gt_aggregatees[0], [gt_aggregatees[1], gt_aggregator]),
                                    (gt_aggregatees[1], [gt_aggregatees[0], gt_aggregator])]
 
                 # match_aggregator_only = gt_aggregator in [p['aggregator_index'] for p in self.single_type_predictions[file_id]]
@@ -81,8 +81,8 @@ class DivisionQualityEval(QualityEval):
 
                 # Given the original prediction as A=B/C, alternative predictions are A=C/B, B=C/A, C=B/A
                 alternative_preds = [(pred_aggregator, pred_aggregatees),
-                                     (pred_aggregator, [pred_aggregatees[1], pred_aggregatees[0]]),
-                                     (pred_aggregatees[0], [pred_aggregatees[1], pred_aggregator]),
+                                     # (pred_aggregator, [pred_aggregatees[1], pred_aggregatees[0]]),
+                                     # (pred_aggregatees[0], [pred_aggregatees[1], pred_aggregator]),
                                      (pred_aggregatees[1], [pred_aggregatees[0], pred_aggregator])]
 
                 # match_aggregator_only = gt_aggregator in [p['aggregator_index'] for p in self.single_type_predictions[file_id]]
