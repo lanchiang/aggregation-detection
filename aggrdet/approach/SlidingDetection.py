@@ -57,9 +57,10 @@ class SlidingAggregationDetection(IndividualAggregationDetection, ABC):
 
                 ar_cands_by_row, forests_by_rows = list(zip(*ar_cands_by_row))
 
-                ar_cands_by_column_index = prune_conflict_ar_cands(ar_cands_by_row, axis=0)
+                ar_cands_by_column_index = prune_conflict_ar_cands(ar_cands_by_row, numeric_line_indices, self.NUMERIC_SATISFIED_RATIO, axis=0)
 
                 ar_cands_by_column_index = {k: v for k, v in ar_cands_by_column_index.items() if
+                                            len(numeric_line_indices[1][str(k[0])]) > 0 and
                                             len(v) / len(numeric_line_indices[1][str(k[0])]) >= self.NUMERIC_SATISFIED_RATIO}
 
                 collected_results = []
@@ -115,9 +116,10 @@ class SlidingAggregationDetection(IndividualAggregationDetection, ABC):
 
                 ar_cands_by_column, forests_by_columns = list(zip(*ar_cands_by_column))
 
-                ar_cands_by_row_index = prune_conflict_ar_cands(ar_cands_by_column, axis=1)
+                ar_cands_by_row_index = prune_conflict_ar_cands(ar_cands_by_column, numeric_line_indices, self.NUMERIC_SATISFIED_RATIO, axis=1)
 
                 ar_cands_by_row_index = {k: v for k, v in ar_cands_by_row_index.items() if
+                                         len(numeric_line_indices[0][str(k[0])]) > 0 and
                                          len(v) / len(numeric_line_indices[0][str(k[0])]) >= self.NUMERIC_SATISFIED_RATIO}
 
                 if not bool(ar_cands_by_row_index):

@@ -15,10 +15,3 @@ while IFS= read -r line; do
     --error-level "$line" \
     --log-level WARNING
 done < $error_level_candidates_path
-
-#env PYTHONPATH=$pythonPath luigi --module evaluation QualityEvaluation \
-#    --local-scheduler \
-#    --algorithm Aggrdet \
-#    --dataset-path ../../data/dataset.jl.gz \
-#    --error-level "$i" \
-#    --log-level WARNING

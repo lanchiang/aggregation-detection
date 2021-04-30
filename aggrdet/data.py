@@ -33,13 +33,14 @@ def normalize_file(file: np.ndarray, number_format: str):
         processed_value = parse_number_string(value)
         matches = re.match(NumberFormatPattern.get(number_format), processed_value.strip())
         trans_file[index] = normalize_number(matches[0], number_format) if matches is not None else processed_value
+
+        if index[0] not in numeric_line_indices[0]:
+            numeric_line_indices[0][index[0]] = []
+        if index[1] not in numeric_line_indices[1]:
+            numeric_line_indices[1][index[1]] = []
         if matches is not None:
-            if index[0] not in numeric_line_indices[0]:
-                numeric_line_indices[0][index[0]] = []
             numeric_line_indices[0][index[0]].append(index[1])
 
-            if index[1] not in numeric_line_indices[1]:
-                numeric_line_indices[1][index[1]] = []
             numeric_line_indices[1][index[1]].append(index[0])
             # numeric_line_indices[0].append(index[0])
             # numeric_line_indices[1].append(index[1])

@@ -6,8 +6,13 @@ from copy import copy
 from helpers import AggregationOperator
 
 
-def prune_conflict_ar_cands(ar_cands_by_line, axis=0):
+MAXIMUM_SHARED_AGGREGATOR_COUNT = 3
+MAXIMUM_SHARED_AGGREGATEE_COUNT = MAXIMUM_SHARED_AGGREGATOR_COUNT
+
+
+def prune_conflict_ar_cands(ar_cands_by_line, numeric_line_indices, line_aggregation_satisfied_ratio_threshold, axis=0):
     satisfied_cands_index = {}
+    signatures_group_by_aggregatees = {}
     for ar_cands in ar_cands_by_line:
         for ar_cand, error_level in ar_cands:
             aggregator = ar_cand.aggregator
@@ -19,10 +24,55 @@ def prune_conflict_ar_cands(ar_cands_by_line, axis=0):
             if ar_tuple not in satisfied_cands_index:
                 satisfied_cands_index[ar_tuple] = []
             satisfied_cands_index[ar_tuple].append((ar_cand, error_level))
+
+            if ar_tuple[1] not in signatures_group_by_aggregatees:
+                signatures_group_by_aggregatees[ar_tuple[1]] = set()
+            signatures_group_by_aggregatees[ar_tuple[1]].add(ar_tuple)
+
+    if axis == 0:
+        satisfied_cands_index = {k: v for k, v in satisfied_cands_index.items() if
+                                 str(k[0]) in numeric_line_indices[1] and len(v) / len(numeric_line_indices[1][str(k[0])]) >= line_aggregation_satisfied_ratio_threshold}
+    else:
+        satisfied_cands_index = {k: v for k, v in satisfied_cands_index.items() if
+                                 str(k[0]) in numeric_line_indices[0] and len(v) / len(numeric_line_indices[0][str(k[0])]) >= line_aggregation_satisfied_ratio_threshold}
+
+    satisfied_cands_group_by_aggregator_index = {}
+    for ar_cand_signature, ar_cands in satisfied_cands_index.items():
+        aggregator_index = ar_cand_signature[0]
+        if aggregator_index not in satisfied_cands_group_by_aggregator_index:
+            satisfied_cands_group_by_aggregator_index[aggregator_index] = {}
+        satisfied_cands_group_by_aggregator_index[aggregator_index][ar_cand_signature] = ar_cands
+    satisfied_cands_group_by_aggregator_index = {k: {sign: cases for sign, cases in sorted(v.items(), key=lambda x: len(x[1]), reverse=True)}
+                                                 for k, v in satisfied_cands_group_by_aggregator_index.items()}
+
+    # satisfied_cands_group_by_aggregator_index = {k: v for k, v in satisfied_cands_group_by_aggregator_index.items() if len(v) <= MAXIMUM_SHARED_AGGREGATOR_COUNT}
+    satisfied_cands_group_by_aggregator_index = {k: {list(v.keys())[0]: list(v.values())[0]} for k, v in satisfied_cands_group_by_aggregator_index.items()}
+    satisfied_cands_index = {_k: _v for v in satisfied_cands_group_by_aggregator_index.values() for _k, _v in v.items()}
+
+    satisfied_cands_group_by_aggregatee_index = {}
+    for ar_cand_signature, ar_cands in satisfied_cands_index.items():
+        aggregatee_indices = ar_cand_signature[1]
+
+        if aggregatee_indices not in satisfied_cands_group_by_aggregatee_index:
+            satisfied_cands_group_by_aggregatee_index[aggregatee_indices] = {}
+        satisfied_cands_group_by_aggregatee_index[aggregatee_indices][ar_cand_signature] = ar_cands
+    satisfied_cands_group_by_aggregatee_index = {k: {sign: cases for sign, cases in sorted(v.items(), key=lambda x: len(x[1]), reverse=True)}
+                                                 for k, v in satisfied_cands_group_by_aggregatee_index.items()}
+
+    # satisfied_cands_group_by_aggregatee_index = {k: v for k, v in satisfied_cands_group_by_aggregatee_index.items() if len(v) <= MAXIMUM_SHARED_AGGREGATEE_COUNT}
+    satisfied_cands_group_by_aggregatee_index = {k: {list(v.keys())[0]: list(v.values())[0]} for k, v in satisfied_cands_group_by_aggregatee_index.items()}
+    satisfied_cands_index = {_k: _v for v in satisfied_cands_group_by_aggregatee_index.values() for _k, _v in v.items()}
+
     satisfied_cands_index = {k: v for k, v in
                              sorted(satisfied_cands_index.items(), key=lambda item: (len(item[1]), - sum([el for _, el in item[1]]) / len(item[1])),
                                     reverse=True)}
-    satisfied_cands_index = {k: [e[0] for e in v] for k, v in satisfied_cands_index.items() if len(v) > 1}
+    satisfied_cands_index = {k: [e[0] for e in v] for k, v in satisfied_cands_index.items()}
+
+    # satisfied_cands_index = {k: v for k, v in
+    #                          sorted(satisfied_cands_index.items(), key=lambda item: (len(item[1]), - sum([el for _, el in item[1]]) / len(item[1])),
+    #                                 reverse=True)}
+    #
+    # satisfied_cands_index = {k: [e[0] for e in v] for k, v in satisfied_cands_index.items() if len(v) > 1}
 
     non_conflict_ar_cands_index = copy(satisfied_cands_index)
     for ar_index in satisfied_cands_index:

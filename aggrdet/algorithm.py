@@ -14,7 +14,7 @@ from tqdm import tqdm
 from approach.CollectiveAggregationDetectionTask import CollectiveAggregationDetectionTask
 from approach.SupplementalAggregationDetectionTask import SupplementalAggregationDetectionTask
 from approach.aggrdet.bruteforce import DelayedBruteforce
-from approach.aggrdet.individual._AverageDetection import AverageDetectionTask
+from approach.aggrdet.individual._AverageDetection import AverageDetection
 from approach.aggrdet.individual._DivisionDetection import DivisionDetection
 from approach.aggrdet.individual._RelativeChangeDetection import RelativeChangeDetection
 from approach.aggrdet.supplemental._SupplementalSumDetection import SupplementalSumDetection

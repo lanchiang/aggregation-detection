@@ -8,13 +8,13 @@ from decimal import Decimal
 import luigi
 from luigi.mock import MockTarget
 
-from approach.BottomUpDetection import BottomUpAggregationDetectionTask
+from approach.BottomUpDetection import BottomUpAggregationDetection
 from elements import Cell, CellIndex, AggregationRelation, Direction
 from helpers import hard_empty_cell_values, AggregationOperator
 from tree import AggregationRelationForest
 
 
-class SumDetectionTask(BottomUpAggregationDetectionTask):
+class SumDetection(BottomUpAggregationDetection):
     """
     A task to execute sum detection.
     """
@@ -222,7 +222,3 @@ class SumDetectionTask(BottomUpAggregationDetectionTask):
     def generate_ar_candidates_similar_headers(self):
 
         pass
-
-
-class SumDetection:
-    pass

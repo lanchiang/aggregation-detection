@@ -80,8 +80,8 @@ if __name__ == '__main__':
     # error_level_candidates = [0, 0.00005, 0.0005, 0.005, 0.05]
     #
     # sum_error_level_candidates = [0.00005, 0.0001, 0.0005, 0.001]
-    # average_error_level_candidates = [0, 0.00001, 0.00005, 0.0001]
-    # division_error_level_candidates = [0.00001, 0.00005, 0.0001, 0.0005]
+    # average_error_level_candidates = [0, 0.00001, 0.00005]
+    # division_error_level_candidates = [0.00001, 0.00005, 0.0001]
     # relative_change_error_level_candidates = [0.005, 0.01, 0.05]
     #
     # error_level_products = itertools.product(sum_error_level_candidates, average_error_level_candidates, division_error_level_candidates, relative_change_error_level_candidates)

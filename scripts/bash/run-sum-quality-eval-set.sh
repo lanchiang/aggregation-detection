@@ -32,11 +32,11 @@ fi
 #sh ./run-sum-quality-eval.sh -x -l -a Aggrdet -d ../../data/troy.jl.gz
 
 ## run aggrdet
-sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/dataset.jl.gz -o Sum
-sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/dataset.jl.gz -o Average
+#sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/dataset.jl.gz -o Sum
+#sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/dataset.jl.gz -o Average
 sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/dataset.jl.gz -o Division
 sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/dataset.jl.gz -o RelativeChange
-sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/dataset.jl.gz -o All
+#sh ./run-sum-quality-eval.sh -a Aggrdet -d ../../data/dataset.jl.gz -o All
 
 ## run baseline
 #sh ./run-sum-quality-eval.sh -a Baseline -d ../../data/troy.jl.gz

@@ -8,14 +8,14 @@ from decimal import Decimal
 import luigi
 from luigi.mock import MockTarget
 
-from approach.BottomUpDetection import BottomUpAggregationDetectionTask
+from approach.BottomUpDetection import BottomUpAggregationDetection
 from approach.approach import AggregationDetection
 from elements import AggregationRelation, Direction, Cell, CellIndex
 from helpers import hard_empty_cell_values, AggregationOperator
 from tree import AggregationRelationForest
 
 
-class AverageDetectionTask(BottomUpAggregationDetectionTask):
+class AverageDetection(BottomUpAggregationDetection):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

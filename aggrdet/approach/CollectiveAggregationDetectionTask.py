@@ -7,10 +7,11 @@ import os
 import luigi
 from luigi.mock import MockTarget
 
-from approach.aggrdet.individual._AverageDetection import AverageDetectionTask
+from approach.aggrdet.individual._AverageDetection import AverageDetection
 from approach.aggrdet.individual._DivisionDetection import DivisionDetection
 from approach.aggrdet.individual._RelativeChangeDetection import RelativeChangeDetection
-from approach.aggrdet.individual.sum import SumDetectionTask
+from approach.aggrdet.individual.subtraction import SubtractionDetection
+from approach.aggrdet.individual.sum import SumDetection
 from helpers import AggregationOperator, AggregationDirection
 
 
@@ -35,15 +36,24 @@ class CollectiveAggregationDetectionTask(luigi.Task):
             return MockTarget('fused-aggregation-results')
 
     def requires(self):
-        sum_detector = {'sum_detector': SumDetectionTask(dataset_path=self.dataset_path, result_path=self.result_path,
-                                                         error_level_dict=self.error_level_dict,
-                                                         use_extend_strategy=self.use_extend_strategy,
-                                                         use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout, debug=self.debug)}
-        average_detector = {'average_detector': AverageDetectionTask(dataset_path=self.dataset_path, result_path=self.result_path,
-                                                                     error_level_dict=self.error_level_dict,
-                                                                     use_extend_strategy=self.use_extend_strategy,
-                                                                     use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout,
-                                                                     debug=self.debug)}
+        sum_detector = {
+            'sum_detector': SumDetection(
+                dataset_path=self.dataset_path, result_path=self.result_path,
+                error_level_dict=self.error_level_dict,
+                use_extend_strategy=self.use_extend_strategy,
+                use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout, debug=self.debug),
+            'subtraction_detector': SubtractionDetection(
+                dataset_path=self.dataset_path, result_path=self.result_path,
+                error_level_dict=self.error_level_dict,
+                use_extend_strategy=self.use_extend_strategy,
+                use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout, debug=self.debug
+            )
+        }
+        average_detector = {'average_detector': AverageDetection(dataset_path=self.dataset_path, result_path=self.result_path,
+                                                                 error_level_dict=self.error_level_dict,
+                                                                 use_extend_strategy=self.use_extend_strategy,
+                                                                 use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout,
+                                                                 debug=self.debug)}
         division_detector = {
             'division_detector': DivisionDetection(dataset_path=self.dataset_path, result_path=self.result_path,
                                                    error_level_dict=self.error_level_dict,
@@ -146,6 +156,13 @@ class CollectiveAggregationDetectionTask(luigi.Task):
                                                    sorted(result_grp_by_row_sign_operator.items(), key=lambda e: (len(e[0][0][1]), len(e[1])), reverse=True)}
                 filtered_results_column_wise = self.__filter_aggregations_by_signature(result_grp_by_row_sign_operator)
                 filtered_results.extend(filtered_results_column_wise)
+
+                for index, filtered_result in enumerate(filtered_results):
+                    if filtered_result[2] == AggregationOperator.SUBTRACT.value:
+                        aggregator_index = filtered_result[1][0]
+                        aggregatees_indices = [filtered_result[0], filtered_result[1][1]]
+                        operator = AggregationOperator.SUM.value
+                        filtered_results[index] = [aggregator_index, aggregatees_indices, operator, filtered_result[3]]
 
                 file_aggrdet_results[number_format] = filtered_results
                 pass

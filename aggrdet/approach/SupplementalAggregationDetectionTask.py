@@ -7,7 +7,7 @@ import luigi
 from luigi.mock import MockTarget
 
 from approach.CollectiveAggregationDetectionTask import CollectiveAggregationDetectionTask
-from approach.aggrdet.individual._AverageDetection import AverageDetectionTask
+from approach.aggrdet.individual._AverageDetection import AverageDetection
 from approach.aggrdet.individual._DivisionDetection import DivisionDetection
 from approach.aggrdet.individual._RelativeChangeDetection import RelativeChangeDetection
 from approach.aggrdet.supplemental._SupplementalSumDetection import SupplementalSumDetection
@@ -43,12 +43,12 @@ class SupplementalAggregationDetectionTask(luigi.Task):
                                                                  use_extend_strategy=self.use_extend_strategy,
                                                                  use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout, debug=self.debug)}
         # Todo: replace with supplemental version
-        average_detector = {'average_detector': AverageDetectionTask(dataset_path=self.dataset_path, result_path=self.result_path,
-                                                                     error_level_dict=self.error_level_dict,
-                                                                     target_aggregation_type=self.target_aggregation_type,
-                                                                     use_extend_strategy=self.use_extend_strategy,
-                                                                     use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout,
-                                                                     debug=self.debug)}
+        average_detector = {'average_detector': AverageDetection(dataset_path=self.dataset_path, result_path=self.result_path,
+                                                                 error_level_dict=self.error_level_dict,
+                                                                 target_aggregation_type=self.target_aggregation_type,
+                                                                 use_extend_strategy=self.use_extend_strategy,
+                                                                 use_delayed_bruteforce=self.use_delayed_bruteforce, timeout=self.timeout,
+                                                                 debug=self.debug)}
         division_detector = {
             'division_detector': DivisionDetection(dataset_path=self.dataset_path, result_path=self.result_path,
                                                    error_level_dict=self.error_level_dict, target_aggregation_type=self.target_aggregation_type,

@@ -40,6 +40,7 @@ class Approach(ABC):
 
 
 class AggregationDetection(luigi.Task, Approach):
+# class AggregationDetection(Approach):
     dataset_path = luigi.Parameter()
     result_path = luigi.Parameter(default='/debug/')
     error_level_dict = luigi.DictParameter(default={'Sum': 0, 'Average': 0, 'Division': 0, 'RelativeChange': 0})
@@ -77,18 +78,9 @@ class AggregationDetection(luigi.Task, Approach):
                 file_writer.write(json.dumps(file_output_dict) + '\n')
 
     def detect_aggregations(self, file_dict):
-        # print(file_dict['file_name'])
         row_wise_aggregations = self.detect_row_wise_aggregations(file_dict)
         column_wise_aggregations = self.detect_column_wise_aggregations(file_dict)
         return row_wise_aggregations, column_wise_aggregations
-
-    @abstractmethod
-    def detect_row_wise_aggregations(self, file_dict):
-        pass
-
-    @abstractmethod
-    def detect_column_wise_aggregations(self, file_dict):
-        pass
 
     @abstractmethod
     def setup_file_dicts(self, file_dicts, caller_name):
